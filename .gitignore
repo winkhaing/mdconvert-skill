@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Build output
+dist/
+
+# Conversion output and working files
+out/
+output/
+*_conversion_log.md
+_worklist.json
+fixture.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+.Spotlight-V100
+.Trashes

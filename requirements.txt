@@ -1,0 +1,2 @@
+# Runtime dependency of scripts/mdconvert_extract.py
+pymupdf>=1.24
