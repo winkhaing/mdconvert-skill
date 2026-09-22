@@ -1,18 +1,20 @@
 # Layout aware conversion of two-column articles to Markdown
 
-## A. Author, B. Coauthor
+A. Author*, B. Coauthor*
+
+Department of Vector Biology, Synthetic University, Taipei
 
 ## Abstract
 
-Arboviral surveillance depends on converting printed reports into machine readable text. Layout aware extraction preserves the reading order of multi-column pages, which a naive line sort destroys. In this synthetic article we describe a two-column layout that carries a running header, a page number, a display equation, one table and one figure, so that a converter can be checked against a known ground truth.
+Arboviral surveillance depends on converting printed reports into machine readable text. Layout aware extraction preserves the reading order of multi-column pages, which a naive line sort destroys, and gives a high-level view of each document. This synthetic article carries a running header, page numbers, a display equation, one table, one figure and several watermarks, so that a converter can be checked against a known ground truth.
 
 ## Introduction
 
-Vector competence was summarised as the proportion of exposed mosquitoes with disseminated infection. Confidence intervals were obtained by the Wilson method. All analyses were carried out in a reproducible environment, and the code needed to regenerate every number in this article is distributed with the manuscript so that an independent reader can repeat the calculation without contacting the authors.
+Vector competence was summarised as the proportion of exposed mosquitoes with disseminated infection. Confidence intervals were obtained by the Wilson method. Each tissue received a classification before analysis, and the code needed to regenerate every number is distributed with the manuscript.
 
 ## Methods
 
-The proportion of positive tissues rose with incubation time in every experimental group. The effect was largest between day 7 and day 14, after which the curve flattened. Sample sizes were fixed in advance at 25 mosquitoes per group, which gives adequate precision for a difference of twenty percentage points.
+The proportion of positive tissues rose with incubation time in every experimental group. A high-level summary was computed with a classification rule described previously. The effect was largest between day 7 and day 14, after which the curve flattened. Sample sizes were fixed at 25 mosquitoes per group, which gives adequate precision.
 
 $$
 p = \frac{k}{n} \times 100 \tag{1}
@@ -26,16 +28,16 @@ _<u>Fig 1. Disseminated infection by day post exposure. Bars show the percentage
 
 ## Results
 
-Vertical transmission is difficult to demonstrate in the field because progeny cannot be linked to a known parent. A laboratory design removes that ambiguity, at the cost of generalisability. Both limitations should be stated plainly when such results are used to parameterise a transmission model.
+Vertical transmission is difficult to demonstrate in the field because progeny cannot be linked to a known parent. A laboratory design removes that ambiguity, at the cost of generalisability.
 
-_<u>Table 1. Positive tissues by day post exposure.</u>_
+_<u>Table 1. Positive tissues by tissue type.</u>_
 
-| Day | Tested | Positive |
+|  | Tested | Positive |
 | --- | --- | --- |
-| 7 | 25 | 7 |
-| 14 | 25 | 13 |
-| 21 | 25 | 19 |
-| 28 | 25 | 22 |
+| Body | 25 | 18 |
+| Legs & Wings | 25 | 12 |
+| Saliva | 25 | 10 |
+| Ovaries | 25 | 1 |
 
 ## References
 
@@ -43,6 +45,10 @@ _<u>Table 1. Positive tissues by day post exposure.</u>_
 
 2. Turell MJ, Linthicum KJ, Beaman JR. Transmission of Rift Valley fever virus by adult mosquitoes after ingestion of virus as larvae. Am J Trop Med Hyg. 1990;43(6):677-680.
 
-3. Wilson EB. Probable inference, the law of succession, and statistical inference. J Am Stat Assoc. 1927;22(158):209-212.
+3. Müller K, Dollár P. Recombining accents in extracted text. J Synth Doc. 2021;4(2):11-19.
 
 4. Lumley S, Horton DL, Hernandez-Triana LLM. Rift Valley fever virus: strategies for maintenance, survival and vertical transmission. J Gen Virol. 2017;98(5):875-887.
+
+## Appendix
+
+Sensitivity analyses used the same tissue panel and the same laboratory protocol. To check robustness, the sensitivity analysis was repeated with a stricter positivity threshold, and the ranking of the groups did not change.

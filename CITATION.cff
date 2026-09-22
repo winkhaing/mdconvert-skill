@@ -11,7 +11,7 @@ abstract: >-
   A Claude skill and standalone extractor that converts born-digital scientific
   PDFs into structured Markdown, preserving multi-column reading order,
   paragraph integrity, tables, figures with descriptions, display formulas and
-  numbered references.
+  numbered references, with watermarks and page furniture removed.
 keywords:
   - pdf
   - markdown
@@ -20,5 +20,5 @@ keywords:
   - scientific publishing
   - claude skill
 license: MIT
-version: 0.1.0
-date-released: "2026-09-20"
+version: 0.2.0
+date-released: "2026-09-22"

@@ -12,29 +12,42 @@ The short list is in the README. This is the long form, with the reason and the 
 
 ## Layouts outside the target range
 
-Tuned for one and two-column scientific articles in Latin script on A4 or US Letter.
+Tuned for one and two-column scientific articles on A4 or US Letter, in Latin script or horizontal Chinese.
 
-Out of scope: vertical CJK text, right-to-left scripts, three or more columns with unequal widths, newspaper layouts, slide decks exported to PDF, posters, and dense chemistry schemes where structures and text are interleaved at small scale.
+Out of scope: vertical CJK text, right-to-left scripts, three or more columns with unequal widths, newspaper layouts, slide decks exported to PDF, posters, and dense chemistry schemes where structures and text are interleaved at small scale. Japanese and Korean share the Chinese line-joining rule but have no caption or section vocabulary yet.
 
-*Why:* the XY-cut gutter threshold and the caption regular expressions encode assumptions about column geometry and English caption prefixes.
+*Why:* the XY-cut gutter threshold and the caption and section vocabularies encode assumptions about column geometry and label words.
 
 *Workaround:* MinerU (`mineru -p in.pdf -o out -b pipeline`) handles a wider range of scripts and layouts. Reformat its output to the output contract before using it.
 
+## Watermarks
+
+**Declared watermarks** (`/Artifact <</Subtype /Watermark>>` marked content, and content on a watermark layer) are removed exactly: from the text and from every figure crop.
+
+**Undeclared watermarks** are removed from the text by rule: rotated, transparent, large and light, on a watermark layer, or recurring at one position. Two consequences follow.
+
+- *Ink can remain in a crop.* When an undeclared transparent stamp is drawn across a chart, the stamp's pixels cannot be separated from the chart's own. The text never reaches the Markdown; a faint trace may remain in that figure's PNG. The figure pass is instructed to ignore it.
+- *A rule can catch genuine text.* A heading printed in very large light grey, deliberately transparent text, or a label repeated at the identical position on most pages would be removed. Rotated table headers and rotated axis labels outside figures are also dropped. Everything removed is counted and sampled in the worklist and the conversion log, so it can be reviewed.
+
+*Workaround:* if genuine text went missing, find it under `watermarks` in the worklist, and raise the matching threshold (see Tuning in the README) or restore the text in the repair pass.
+
 ## Small vector figures
 
-A diagram drawn as a few vector strokes covering less than about 1.2 percent of the page may not be detected as a figure.
+A diagram covering less than 1.2 percent of the page is taken only when a figure caption sits within 60 points of it. A small uncaptioned diagram is still missed.
 
 *Why:* the same threshold that catches a small inline diagram also catches horizontal rules, logos, table borders and decorative marks, and a file full of spurious crops is worse than one missing figure.
 
-*Detection:* the caption count check reports it as `figure captions=N but figure images=M`.
+*Detection:* the caption count check reports `figure captions=N but figure images=M`.
 
-*Workaround:* the repair pass crops it by hand from the page image. To change the default, lower the vector cluster minimum in the per-page section of the extractor.
+*Workaround:* the repair pass crops it by hand from the page image.
 
-## Complex tables
+## Tables
 
-Merged cells, spanning or nested headers, multi-row stubs, and tables continued across a page break are flattened or partially recovered. A table whose columns are separated only by whitespace, with no ruling and inconsistent alignment, may not be detected at all.
+**Borderless tables are often missed.** A table set with whitespace alone and no rules may not be found by the grid detector. In validation, the Transformer paper yielded 2 of its 4 tables and ResNet 13 of 14.
 
-*Why:* the detector returns a rectangular grid. Rectangular grids cannot express a merged cell, and nothing in the geometry says that the grid on page 4 continues the grid on page 3.
+**Complex tables lose structure.** Merged cells, spanning or nested headers, multi-row stubs, and tables continued across a page break are flattened or partially recovered.
+
+*Why:* the detector returns a rectangular grid built from rules. Rectangular grids cannot express a merged cell, nothing in the geometry says that the grid on page 4 continues the grid on page 3, and without rules there may be no grid at all.
 
 *Detection:* the table caption count check.
 
@@ -42,7 +55,7 @@ Merged cells, spanning or nested headers, multi-row stubs, and tables continued 
 
 ## Formulas
 
-Display equations are converted from a rendered crop, which is reliable for ordinary inline-sized mathematics and unreliable for long multi-line derivations, matrices, commutative diagrams and expressions with heavy annotation above and below the line.
+Display equations are converted from a rendered crop, which is reliable for ordinary mathematics and unreliable for long multi-line derivations, matrices, commutative diagrams and expressions with heavy annotation above and below the line.
 
 Inline mathematics inside a sentence is left as extracted text, which means Unicode symbols and italic variable names, not LaTeX.
 
@@ -50,11 +63,13 @@ Inline mathematics inside a sentence is left as extracted text, which means Unic
 
 *Workaround:* a formula that cannot be read confidently is kept as a PNG and linked. Check every converted formula that will be reused in a manuscript.
 
+## Hyphenation
+
+A line-end hyphen is resolved from the document's own vocabulary first, then from a short list of compound elements. When a word appears only once, broken across a line, and its first half is on the compound list, the hyphen is kept even if the author meant a single word ("non-" + "structural" stays "non-structural" unless "nonstructural" occurs elsewhere in the text).
+
 ## Reference styles
 
 Numbered styles (`[1]`, `1.`) are handled well. Author-year bibliographies with no numbers fall back to splitting on block boundaries, which merges two short entries when the PDF puts them in one block, and splits one entry when the PDF breaks it across a column.
-
-*Why:* without numbers there is no unambiguous separator. Splitting on "surname, initial" patterns produces more errors than it fixes.
 
 *Detection:* the log records `references had no reliable numbering; numbered by block order`.
 
@@ -70,5 +85,5 @@ Numbered styles (`[1]`, `1.`) are handled well. Author-year bibliographies with 
 
 - One document per run, interactively. There is no unattended batch queue.
 - The figure and formula passes need a vision model, so the command line alone stops at the placeholders.
-- Memory and time scale with page count and figure count. A 40-page review with 30 figures is slow, mostly in the vision passes.
+- Memory and time scale with page count and figure count. The extractor itself takes about 3 to 4 seconds for a 12 to 15 page paper; the vision passes take longer.
 - Figure descriptions describe. They are not a substitute for the underlying data, and they should not be quoted as if they were measurements.

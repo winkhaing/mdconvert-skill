@@ -1,14 +1,11 @@
 # Troubleshooting
 
-Symptom, cause, fix. Most fixes are a threshold at the top of `scripts/mdconvert_extract.py` or in its per-page section.
+Symptom, cause, fix. Most fixes are a threshold in `scripts/mdconvert_extract.py`.
 
 ## Installation and running
 
 **`ModuleNotFoundError: No module named 'pymupdf'`**
 `pip install -r requirements.txt`. On a system-managed Python, add `--break-system-packages` or use a virtual environment.
-
-**`import fitz` deprecation warning**
-Harmless, and it comes from another package. This extractor imports `pymupdf` directly.
 
 **"Consider using the pymupdf_layout package" on stderr**
 An upstream notice, not an error. The summary JSON is on stdout, so parse stdout alone: `python3 scripts/mdconvert_extract.py in.pdf out 2>/dev/null | jq .`
@@ -16,8 +13,28 @@ An upstream notice, not an error. The summary JSON is on stdout, so parse stdout
 **Exit code 3 on a PDF that clearly has text**
 The text layer is behind an image overlay, or the pages are images with a thin OCR layer. Check with `python3 -c "import pymupdf; print(len(pymupdf.open('in.pdf')[0].get_text()))"`. If the count is genuinely low but the document is usable, lower the 120 characters per page gate in the scanned check.
 
+**Exit code 4**
+The PDF has a user password. Rerun with `--password "..."`. A PDF that only restricts printing or copying (an owner password) opens without one and does not trigger this.
+
+**Exit code 5**
+The file is not a PDF (often an HTML error page saved with a `.pdf` name by a download that failed), or it is truncated. Check with `file in.pdf` and download it again.
+
 **The skill does not appear in Claude**
 For a filesystem install the folder must be `~/.claude/skills/mdconvert/` with `SKILL.md` at its top level, and the client needs a restart. For an uploaded bundle, check that the zip contains `mdconvert/SKILL.md` and not `SKILL.md` at the archive root.
+
+## Watermarks
+
+**A watermark is still in the Markdown**
+Check which kind it is. Open the page in a viewer: if the stamp is horizontal, opaque, normal-sized and appears on one page only, none of the rules applies to it. Remove it in the repair pass, and open a conversion issue with the DOI so a rule can be added.
+
+**A watermark is still visible inside a figure image**
+The watermark is not declared by the PDF, so its ink cannot be separated from the figure's. The text is still kept out of the Markdown. If the crop matters, re-crop it from a copy of the PDF with the watermark removed in a PDF editor.
+
+**Genuine text disappeared**
+Look under `watermarks` in `_worklist.json`: `text_removed` counts every span removed by reason, and `samples` shows examples. A light-grey banner heading points to the large light rule (raise the 2.5 times body size factor); a label repeated in the same place on every page points to the recurrence rule (raise the 60 percent share); a rotated table header points to the rotation rule, which cannot be relaxed without letting diagonal stamps back in, so restore it in the repair pass.
+
+**A logo or stamp appears as a figure**
+It recurred on fewer than 60 percent of pages, or at slightly different positions. Delete the crop and its link in the repair pass.
 
 ## Reading order and text
 
@@ -28,18 +45,21 @@ The gutter was not detected, usually because a figure, a table or a wide equatio
 `gutter_min` is too small for a layout with wide internal spacing, such as a definition list or a table of contents. Raise it.
 
 **Paragraphs broken into fragments**
-The PDF emits one block per line, which happens with some typesetting engines. The rejoin pass repairs continuations, not wholesale fragmentation. Check whether the fragments are separate blocks in `page.get_text("dict")`; if so, the file needs a pre-merge step and is worth an issue with the DOI.
+The PDF emits one block per line and the lines end with full stops, which happens with some typesetting engines. The rejoin pass repairs continuations that end mid-sentence. Check whether the fragments are separate blocks in `page.get_text("dict")`; if so, the file needs a pre-merge step and is worth an issue with the DOI.
+
+**A compound lost its hyphen, or a split word kept one**
+The document's vocabulary decides first. Add the first element to `COMPOUND_FIRST` to keep hyphens it forms, or check whether the unhyphenated spelling occurs elsewhere in the paper.
 
 **Running head still present**
-It changes between sections, so it never reaches the 35 percent recurrence threshold. Lower the threshold in the page chrome pass, or remove it in the repair pass.
+It changes between sections, so it never reaches the recurrence threshold. Lower the threshold in the page chrome pass, or remove it in the repair pass.
 
 **Text missing from the output**
-Most often it was inside a figure crop and dropped as an axis label, or inside a table bbox. Search `_worklist.json` for that page, and compare the crop against the page image. The figure text-coverage check (`cov > 0.78`) and the prose check (`nchar > 130`) exist to prevent this; if a body paragraph was swallowed, the figure region was wrong.
+Most often it was inside a figure crop and dropped as an axis label, inside a table bbox, or removed as a watermark or front-matter notice. Search `_worklist.json` for that text under `watermarks` and `front_matter_removed`, and compare the crop against the page image.
 
 ## Figures
 
 **A figure is missing**
-Below the vector cluster size threshold, or its caption prefix was not recognised. The caption count warning flags it. Lower the cluster minimum, or crop it in the repair pass.
+Below the vector cluster size threshold and with no caption within 60 points, or its caption prefix was not recognised. The caption count warning flags it. Lower the cluster minimum, or crop it in the repair pass.
 
 **One figure came out as several images**
 The panels did not share a detected caption, so they were not grouped. Check that the caption sits within 130 points of the panels and overlaps them horizontally.
@@ -53,16 +73,19 @@ A drawing cluster of invisible or white strokes. Delete it in the repair pass. T
 ## Tables
 
 **A plot came out as a table**
-Text coverage inside the region was above 0.40, which happens with a dense legend or many annotations. Raise the threshold.
+The plot has no curves or diagonal strokes (a bar chart drawn only with rectangles) and most of its grid cells hold text. Delete it in the repair pass and crop the chart as a figure.
 
 **A real table came out as a figure**
-Text coverage was below 0.40, which happens with a sparse numeric table and wide cells. Lower the threshold.
+Its cells are mostly empty and it covers little text, or it contains diagonal rules. Transcribe it in the repair pass.
 
-**The stub column is missing**
-The detector did not include the row-label column in the grid, usually because it is unruled. Transcribe the table in the repair pass.
+**The row-label column is missing**
+The labels are not left-aligned within 25 points of each other, sit more than 80 points from the grid, or fewer than half of the body rows have one. Transcribe the table in the repair pass.
 
 **A table split across pages appears twice, partially**
 Expected. Join them by hand; this is on the roadmap.
+
+**A borderless table is missing**
+Expected for tables set with whitespace alone. The caption count warning flags it; transcribe it from the page image.
 
 ## References
 
@@ -88,4 +111,4 @@ The title is the largest text block on page 1 above the body size. A cover page,
 
 ## Reporting a problem
 
-Open a conversion issue with the DOI or a link to the open-access PDF, the page and region, what the output looked like, what it should have been, and the `warnings` array from `_worklist.json`. Please do not attach paywalled files.
+Open a conversion issue with the DOI or a link to the open-access PDF, the page and region, what the output looked like, what it should have been, and the `warnings` and `watermarks` entries from `_worklist.json`. Please do not attach paywalled files.
