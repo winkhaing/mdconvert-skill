@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://github.com/your-username/mdconvert-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/mdconvert-skill/actions/workflows/ci.yml)
+[![Tests](https://github.com/winkhaing/mdconvert-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/winkhaing/mdconvert-skill/actions/workflows/ci.yml)
 
 A Claude skill that converts born-digital scientific PDFs into clean, structured Markdown: correct multi-column reading order, page furniture and watermarks stripped, figures cropped and described, tables as real Markdown tables, display formulas as LaTeX, and references as numbered entries.
 
@@ -84,7 +84,7 @@ Stated plainly, because knowing the limits is the difference between a useful to
 ### Option A: Claude Code (filesystem skills)
 
 ```bash
-git clone https://github.com/your-username/mdconvert-skill.git ~/.claude/skills/mdconvert
+git clone https://github.com/winkhaing/mdconvert-skill.git ~/.claude/skills/mdconvert
 pip install -r ~/.claude/skills/mdconvert/requirements.txt
 ```
 
@@ -95,7 +95,7 @@ For a project-scoped install, clone into `.claude/skills/mdconvert` inside the r
 ### Option B: claude.ai and Cowork (uploaded skill)
 
 ```bash
-git clone https://github.com/your-username/mdconvert-skill.git
+git clone https://github.com/winkhaing/mdconvert-skill.git
 cd mdconvert-skill
 bash scripts/build_bundle.sh          # writes dist/mdconvert.zip
 ```
@@ -111,7 +111,7 @@ python3 scripts/build_single_file_skill.py    # writes dist/SKILL.single.md
 ### Option C: extractor only, no Claude
 
 ```bash
-git clone https://github.com/your-username/mdconvert-skill.git
+git clone https://github.com/winkhaing/mdconvert-skill.git
 cd mdconvert-skill
 pip install -r requirements.txt
 python3 scripts/mdconvert_extract.py paper.pdf out/paper
@@ -281,4 +281,4 @@ The extractor depends on PyMuPDF, which is distributed under AGPL-3.0 or a comme
 
 If this tool contributes to published work, cite it through [CITATION.cff](CITATION.cff), or:
 
-> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.2.0. 2026. https://github.com/your-username/mdconvert-skill
+> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.2.0. 2026. https://github.com/winkhaing/mdconvert-skill

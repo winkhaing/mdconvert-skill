@@ -6,7 +6,7 @@ authors:
   - family-names: Khaing
     given-names: Win
     orcid: "https://orcid.org/0000-0003-1636-1807"
-repository-code: "https://github.com/your-username/mdconvert-skill"
+repository-code: "https://github.com/winkhaing/mdconvert-skill"
 abstract: >-
   A Claude skill and standalone extractor that converts born-digital scientific
   PDFs into structured Markdown, preserving multi-column reading order,

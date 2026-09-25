@@ -15,7 +15,7 @@ Open an issue using the **Conversion issue** template and include:
 ## Development setup
 
 ```bash
-git clone https://github.com/your-username/mdconvert-skill.git
+git clone https://github.com/winkhaing/mdconvert-skill.git
 cd mdconvert-skill
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
