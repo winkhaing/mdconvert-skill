@@ -42,6 +42,12 @@ Both passes need a vision model, so the command line alone stops at the placehol
 | grey stamp in the same corner of every page | not extracted as a figure |
 | large light DRAFT across the table | absent from the table cells |
 | bar chart drawn as vector strokes | `images/fig-p01-01.png`, cropped without its caption |
+| numeric tick rows on both axes | read from the PDF: x at 7, 14, 21, 28 and y at 0 to 100, both reported linear |
+| "Positive tissues (%)" printed rotated beside the y axis | read as the y axis title, not removed as a watermark |
+| "Days post exposure" under the tick row | read as the x axis title |
+| "p = 0.003, n = 25" printed on the plot | in `printed_stats`, and quoted in the description as printed |
+| the axis numbers and titles themselves | absent from the body text, not stray one-line paragraphs |
+| "As Fig 1 shows ..." in the Results paragraph | attached to the figure as `cited_by`, for cross-checking the description |
 | caption below the chart | `_<u>Fig 1. ...</u>_`, italic and underlined |
 | table with its row labels outside the ruled grid | pipe table with the row labels as the first column |
 | `p = k / n x 100  (1)` set in italic | `$$ p = \frac{k}{n} \times 100 \tag{1} $$` |

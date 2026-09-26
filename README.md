@@ -45,7 +45,9 @@ mdconvert does the layout work explicitly, then uses Claude's vision to do the p
 | Clean characters | Ligature glyphs are expanded ("ﬁ" to "fi") and TeX-style spacing accents are recombined ("M¨uller" to "Müller"), so the text is searchable |
 | Consistent headings | One `#` title, `##` sections, `###` subsections, assigned from document-wide font size and weight evidence rather than per-page guesses. Run-together headings such as "Results Study 1" are split |
 | Figures and graphical abstracts | Raster placements, vector drawing clusters, small diagrams that sit next to a caption, and caption-anchored regions are cropped to PNG at 220 dpi, saved in `images/` and linked relatively. Panels that share one caption are merged into a single image |
-| Figure descriptions | Claude reads each crop and writes a short description under the image, inside the same Markdown file |
+| Figure label text read from the PDF | Tick labels, axis titles, legend entries, panel letters and plot annotations are collected as vector text with their positions, so units, group names and printed p-values are exact rather than guessed from pixels. A rotated string inside a figure is read as an axis title instead of being treated as a watermark, and those label blocks no longer leak into the prose as stray one-line paragraphs |
+| Axis scale measured | A tick row is accepted only when at least three numeric labels run one way across the axis, and linear against log is decided by which one fits the tick positions. Panels that repeat an axis are counted. Numbers inside a diagram produce no axis, so nothing is claimed that was not measured |
+| Figure descriptions | Claude reads each crop and writes a short description under the image, using the extracted labels verbatim for every unit and value, and cross-checking against the caption and the sentences that cite the figure |
 | Real tables | Ruled and whitespace-aligned tables become pipe tables with escaped separators, never screenshots. A row-label column printed outside the ruled grid is recovered and joined to its rows |
 | Charts kept out of tables | A table candidate that contains curves or diagonal strokes, or that is mostly empty and mostly graphics, is reclassified as a chart and cropped as a figure |
 | Captions styled consistently | Every figure and table caption is rendered `_<u>Figure 1. Caption as printed.</u>_`, italic plus underline. In-text mentions such as "Fig. 6 shows" are not mistaken for captions |
@@ -70,7 +72,8 @@ Stated plainly, because knowing the limits is the difference between a useful to
 - **Unnumbered reference styles are approximate.** Author-year bibliographies without numbers are split on block boundaries and numbered in order, which can merge two short entries. The log says when this fallback was used.
 - **Semantics are not checked.** The tool preserves what the PDF says. It does not verify claims, resolve citations, or reconcile numbers in the text against numbers in the tables.
 - **Not a batch server.** It converts one document per run, interactively, with Claude in the loop for the vision and repair passes. There is no unattended queue mode.
-- **Figure descriptions are descriptions, not data.** They record what is visible. They do not read exact values off a chart, and they should not be used as a substitute for the underlying data.
+- **Figure descriptions are descriptions, not data.** Labels, units and printed statistics are exact, because they are read from the PDF's text. Values that exist only as geometry, such as a bar height or a point on a curve, are not extracted: the description says what the pattern is, not what the number is. Digitising those values is a separate job and is not in this version.
+- **Figure label text needs a text layer.** A figure embedded as a single raster image carries no label text, so it falls back to description from the crop alone. The worklist shows `text_items` of 0 for those.
 
 ## Requirements
 
@@ -187,6 +190,8 @@ PDF
  │    │  row-label columns recovered from outside the grid
  │    ├─ figure regions: raster rects, vector clusters, captioned small diagrams,
  │    │                  caption-anchored bands; merged, grouped by caption
+ │    ├─ figure label text: ticks, axis titles, legend, panel letters, printed
+ │    │                     statistics, read from the PDF and kept out of the prose
  │    └─ XY-cut reading order over text, tables and figures together
  │
  ├─ document passes ───────────── title, front matter, heading levels, footnotes,
@@ -203,9 +208,9 @@ The split matters: geometry decides *where things are*, and only the questions t
 
 ## Validation
 
-`tests/` builds two synthetic articles with known ground truth and asserts the output contract in 35 tests.
+`tests/` builds two synthetic articles with known ground truth and asserts the output contract in 45 tests.
 
-The English fixture is a three-page, two-column article carrying a running header and page numbers, a licence notice above the title, an author line, hand-set line-end hyphens of both kinds, a display equation, a figure, a table whose row labels sit outside the ruled grid, a TeX-style accent, content after the references, a paragraph that continues across a column break, and five watermarks: a transparent diagonal stamp across body text, a declared watermark, text on a watermark layer, a large light DRAFT across the table, and a recurring stamp image. The Chinese fixture covers joining, captions, sections and references. Further tests cover scanned, encrypted and damaged files, and the text helpers directly.
+The English fixture is a three-page, two-column article carrying a running header and page numbers, a licence notice above the title, an author line, hand-set line-end hyphens of both kinds, a display equation, a figure, a table whose row labels sit outside the ruled grid, a chart with numeric tick rows on both axes, a rotated y-axis title, an x-axis title, a printed p-value and group size, a sentence in the body citing the figure, a TeX-style accent, content after the references, a paragraph that continues across a column break, and five watermarks: a transparent diagonal stamp across body text, a declared watermark, text on a watermark layer, a large light DRAFT across the table, and a recurring stamp image. The Chinese fixture covers joining, captions, sections and references. Further tests cover scanned, encrypted and damaged files, and the text helpers directly.
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -213,13 +218,15 @@ python3 -m unittest discover -s tests -v
 
 The pipeline was also checked against three structurally different real papers:
 
-| Paper | Layout | Pages | Figures | Equations | Tables | References |
-| --- | --- | --- | --- | --- | --- | --- |
-| Deep residual learning (CVPR) | Two column | 12 | 7 of 7 | 2 | 13 of 14 | 1 to 50, complete |
-| PLOS NTD research article | Single column | 14 | 3 of 3 | 0 | 3 of 3, 2 row-label columns recovered | 44 found, gap at 2 to 3 reported |
-| Attention is all you need | Mixed | 15 | 5 of 5 | 6 | 2 of 4, borderless | 1 to 40, complete |
+| Paper | Layout | Pages | Figures | Equations | Tables | References | Figures with axes read |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Deep residual learning (CVPR) | Two column | 12 | 7 of 7 | 2 | 13 of 14 | 1 to 50, complete | 4 of 4 plots, both axis titles each |
+| PLOS NTD research article | Single column | 14 | 3 of 3 | 0 | 3 of 3, 2 row-label columns recovered | 44 found, gap at 2 to 3 reported | 0, figures are raster images |
+| Attention is all you need | Mixed | 15 | 5 of 5 | 6 | 2 of 4, borderless | 1 to 40, complete | 0, diagrams with no numeric axis |
 
 The counts are reported against the captions printed in each paper, and every shortfall appeared as a warning in the worklist rather than as a silent loss. The PLOS row is the point: two reference numbers were not recoverable from the text layer, and the tool reported the gap instead of renumbering the list to look complete.
+
+The last column is the label-reading pass. On the four ResNet plots it returned the tick values, the linear scale, the panel repeat count and both axis titles, and on the three architecture diagrams it correctly returned no axis at all rather than mistaking layer widths for ticks. The Markdown output of all three papers is byte-identical to version 0.2.0: the label data is added to the worklist, and nothing in the conversion changed.
 
 ## Tuning
 
@@ -236,6 +243,10 @@ Thresholds live in `scripts/mdconvert_extract.py`. The ones worth touching:
 | `gutter_min` | `max(11, 0.022 * page width)` | Column gutter width. Raise it for wide-tracked single-column layouts that split wrongly |
 | vector cluster minimum | 1.2 percent of page area, 0.3 percent next to a caption | Lower it to catch small line diagrams, at the cost of picking up rules and decorations |
 | `COMPOUND_FIRST` | high, low, well, non, ... | Words that keep a line-end hyphen when the document itself gives no evidence |
+| figure label pad | 10 to 26 points, 10 percent of the figure | How far outside a figure a tick label or axis title is still collected |
+| tick row minimum | 3 numeric labels running one way, spanning 25 percent of the axis | Raise it to be stricter about what counts as an axis |
+| log-scale test | log fit above 0.995 and better than linear by 0.02 | How confidently a log axis must fit before it is called log |
+| rotated axis titles | at most 8 rotated strings in one figure | Above this, rotated text is data labels (an attention or correlation map) and no axis title is claimed |
 
 ## Repository layout
 
@@ -260,6 +271,7 @@ mdconvert-skill/
 
 ## Roadmap
 
+- Figure data extraction behind a flag: axis calibration and series values, with provenance and confidence per value
 - Borderless table detection from column alignment
 - Table structure: merged cells and spanning headers
 - Tables continued across pages, joined into one
@@ -281,4 +293,4 @@ The extractor depends on PyMuPDF, which is distributed under AGPL-3.0 or a comme
 
 If this tool contributes to published work, cite it through [CITATION.cff](CITATION.cff), or:
 
-> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.2.0. 2026. https://github.com/winkhaing/mdconvert-skill
+> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.3.0. 2026. https://github.com/winkhaing/mdconvert-skill

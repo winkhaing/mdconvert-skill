@@ -24,11 +24,11 @@ $$
 
 _<u>Fig 1. Disseminated infection by day post exposure. Bars show the percentage of tissues testing positive in each group.</u>_
 
-**Figure description.** A vertical bar chart with four bars and no plotted y axis scale, enclosed in a thin rectangular frame. The x axis is labelled by day post exposure: d7, d14, d21 and d28. Bar height increases monotonically from left to right, with the largest single step between d7 and d14 and progressively smaller increases afterwards, so the series flattens towards d28. All bars are drawn in one colour, and no error bars or significance annotations are shown.
+**Figure description.** A vertical bar chart with four bars, enclosed in a thin rectangular frame. The x axis is Days post exposure, with linear ticks at 7, 14, 21 and 28. The y axis is Positive tissues (%), with linear ticks from 0 to 100. Bar height increases monotonically from left to right, with the largest single step between day 7 and day 14 and progressively smaller increases afterwards, so the series flattens towards day 28. The plot is annotated p = 0.003 and n = 25. All bars are drawn in one colour, and no error bars or significance brackets are shown.
 
 ## Results
 
-Vertical transmission is difficult to demonstrate in the field because progeny cannot be linked to a known parent. A laboratory design removes that ambiguity, at the cost of generalisability.
+Vertical transmission is difficult to demonstrate in the field because progeny cannot be linked to a known parent. A laboratory design removes that ambiguity, at the cost of generalisability. As Fig 1 shows, the proportion of positive tissues increased with incubation time in every group.
 
 _<u>Table 1. Positive tissues by tissue type.</u>_
 

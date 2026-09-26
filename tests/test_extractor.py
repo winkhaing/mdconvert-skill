@@ -154,6 +154,37 @@ class TwoColumnArticle(unittest.TestCase):
     def test_body_text_under_watermark_survives(self):
         self.assertIn("largest between day 7 and day 14, after which the curve flattened", self.md)
 
+    # ---- figure label text (read from the PDF, not from the crop)
+    def test_axis_ticks_read_verbatim(self):
+        t = self.work["figures"][0]["ticks"]
+        self.assertEqual(t["x"]["labels"], ["7", "14", "21", "28"])
+        self.assertEqual(t["x"]["scale"], "linear")
+        self.assertEqual(t["y"]["values"], [100.0, 75.0, 50.0, 25.0, 0.0])
+        self.assertEqual(t["y"]["range"], [0.0, 100.0])
+
+    def test_axis_titles_read(self):
+        titles = self.work["figures"][0]["axis_titles"]
+        self.assertEqual(titles["y"], "Positive tissues (%)")     # rotated on the page
+        self.assertEqual(titles["x"], "Days post exposure")
+
+    def test_printed_statistics_captured(self):
+        self.assertEqual(self.work["figures"][0]["printed_stats"], ["p = 0.003", "n = 25"])
+
+    def test_citing_sentence_attached(self):
+        cited = self.work["figures"][0]["cited_by"]
+        self.assertTrue(any("As Fig 1 shows" in s for s in cited), cited)
+
+    def test_figure_labels_not_left_as_prose(self):
+        for stray in ("\n100\n", "\n75\n", "\nDays post exposure\n",
+                      "Positive tissues (%)", "p = 0.003"):
+            self.assertNotIn(stray, self.md, stray)
+
+    def test_rotated_axis_title_is_not_a_watermark(self):
+        wm = self.work["watermarks"]
+        self.assertGreaterEqual(wm["axis_text_recovered"], 1)
+        self.assertEqual(wm["text_removed"].get("rotated"), 1)    # the diagonal stamp only
+        self.assertNotIn("Positive tissues (%)", wm["samples"])
+
 
 class ChineseArticle(unittest.TestCase):
     @classmethod
@@ -255,6 +286,39 @@ class TextHelpers(unittest.TestCase):
         self.assertTrue(mx.CAPTION_RE.match("Fig 3: Kaplan-Meier curves"))
         self.assertIsNone(mx.CAPTION_RE.match("Fig. 6 (middle) shows the behaviour"))
         self.assertIsNone(mx.CAPTION_RE.match("Table 1 shows the results"))
+
+    # ---- axis reading
+    def test_label_value(self):
+        self.assertEqual(mx.label_value("1,000"), 1000.0)
+        self.assertEqual(mx.label_value("25%"), 25.0)
+        self.assertEqual(mx.label_value("−3.5"), -3.5)
+        self.assertIsNone(mx.label_value("d7"))
+
+    def test_axis_scale_measured_not_assumed(self):
+        pos = [100.0, 200.0, 300.0, 400.0]
+        self.assertEqual(mx.axis_scale([1.0, 10.0, 100.0, 1000.0], pos), "log")
+        self.assertEqual(mx.axis_scale([0.0, 25.0, 50.0, 75.0], pos), "linear")
+        self.assertEqual(mx.axis_scale([1.0, 50.0, 2.0, 60.0], pos), "unknown")
+
+    def test_axis_from_row_and_column(self):
+        rect = mx.pymupdf.Rect(308, 372, 539, 482)
+        xs = [{"t": t, "b": [c - 4, 474, c + 4, 481]}
+              for t, c in zip(("7", "14", "21", "28"), (330, 372, 414, 456))]
+        ys = [{"t": t, "b": [292, c - 3, 302, c + 3]}
+              for t, c in zip(("100", "75", "50", "25", "0"), (374, 399, 424, 449, 474))]
+        x = mx.axis_from(xs + ys, rect, "x")
+        y = mx.axis_from(xs + ys, rect, "y")
+        self.assertEqual((x["labels"], x["scale"]), (["7", "14", "21", "28"], "linear"))
+        self.assertEqual((y["values"], y["range"]), ([100.0, 75.0, 50.0, 25.0, 0.0], [0.0, 100.0]))
+        self.assertIsNone(mx.axis_from(xs[:2], rect, "x"))        # two labels are not an axis
+
+    def test_statistics_patterns(self):
+        self.assertTrue(mx.PVAL_RE.search("P < 0.001 versus baseline"))
+        self.assertTrue(mx.PVAL_RE.search("p = 1.2 x 10-4"))
+        self.assertTrue(mx.NEQ_RE.search("Severe (n = 41)"))
+        self.assertTrue(mx.CI_RE.search("95% CI 1.2 to 3.4"))
+        self.assertTrue(mx.PANEL_LABEL_RE.match("(B)"))
+        self.assertIsNone(mx.PANEL_LABEL_RE.match("Body"))
 
     def test_marked_content_stripper(self):
         data = (b"q BT (keep) Tj ET Q\n/Artifact <</Subtype /Watermark>> BDC q BT (drop (nested)) Tj ET Q EMC\n"

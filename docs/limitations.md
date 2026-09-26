@@ -31,6 +31,20 @@ Out of scope: vertical CJK text, right-to-left scripts, three or more columns wi
 
 *Workaround:* if genuine text went missing, find it under `watermarks` in the worklist, and raise the matching threshold (see Tuning in the README) or restore the text in the repair pass.
 
+## Figure labels and figure data
+
+**Labels are exact, values are not extracted.** The text printed inside a figure (tick labels, axis titles, legend entries, panel letters, printed statistics) is read from the PDF's text layer, so units, group names and p-values are verbatim. What is *not* read is anything that exists only as geometry: a bar height, a point on a curve, the position of a box plot's median.
+
+*Why:* recovering a value from geometry means calibrating the axis in pixels and digitising the mark, with an error the reader cannot see. That is a separate pass with its own provenance and confidence fields, and it is not in this version.
+
+*Consequence:* a description says "the third group is about a third higher" and not "the third group is 47 percent".
+
+**A figure embedded as one raster image has no label text.** Scanned or bitmap figures fall back to description from the crop alone; the worklist shows `text_items` of 0.
+
+**An axis is claimed only when it is measured.** Three or more numeric labels must run one way across the axis, spanning at least a quarter of it. Numbers inside a diagram (layer widths in an architecture figure, node labels) therefore yield no axis, which is correct but means a genuinely unusual axis (two ticks only, or labels at both ends alone) is missed.
+
+**Rotated text is ambiguous.** Inside a figure, a rotated string is read as an axis title. When a figure holds many rotated strings, as an attention map or a correlation matrix does, no axis title is claimed, because those are data labels. The cutoff is eight rotated strings, so a figure with nine y titles would lose them.
+
 ## Small vector figures
 
 A diagram covering less than 1.2 percent of the page is taken only when a figure caption sits within 60 points of it. A small uncaptioned diagram is still missed.

@@ -93,6 +93,10 @@ _<u>Fig 2. Caption as printed.</u>_
 - Panels sharing one caption are one file
 - The crop never contains the caption
 - The description states the graphic type, the axes and units, the series or groups, the direction and size of the main effect, and any annotated statistics. For a multi-panel figure it goes panel by panel. It never states a value that is not printed or readable off an axis, and it never mentions a watermark.
+- Labels come from the PDF, not from the image. The worklist gives each figure its `text` (every label with box, size and rotation), `ticks` (tick labels, values, range and the measured `linear` / `log` / `unknown` scale, with `repeats` when panels share an axis), `axis_titles`, `printed_stats`, `panels` and `cited_by`. The description uses those strings verbatim: no re-typed units, no tidied group names, no rounded p-values.
+- When `ticks` reports a log scale, the description says so.
+- Anything illegible is named in the conversion log under `unreadable`, never guessed and never silently omitted.
+- Label blocks belong to the figure, not to the prose: a short line of label-sized type inside the figure's padded box is not emitted as a paragraph.
 
 ## Tables
 

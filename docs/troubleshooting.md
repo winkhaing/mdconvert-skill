@@ -67,6 +67,21 @@ The panels did not share a detected caption, so they were not grouped. Check tha
 **The crop includes the caption**
 The caption block was not recognised as a caption, so it was not excluded. Check the caption prefix against `CAPTION_RE`. Non-English prefixes such as "Abbildung" or "Figura" need adding.
 
+**`text_items` is 0 for a figure that clearly has labels**
+The figure is an embedded raster image, so there is no text to read. Describe it from the crop. If the figure is vector but the labels still did not appear, they sit further out than the collection pad (10 to 26 points, 10 percent of the figure), or they fall inside a neighbouring prose block's box, which is excluded on purpose.
+
+**A tick row was not detected**
+Fewer than three numeric labels, or they do not run one way across the axis, or they span less than a quarter of it. Two-tick axes and axes labelled only at their ends are missed by design.
+
+**`scale` says `unknown`**
+The tick values are not monotonic in position, usually because several panels share a row and their runs were interleaved. The longest single run is reported as the axis and `repeats` counts the runs; read the panels individually from the crop.
+
+**An axis title is wrong or missing**
+The y title is the longest rotated string in the figure, and is only claimed when the figure holds at most eight rotated strings. An attention map or correlation matrix therefore reports no title, which is intended. The x title is the first non-numeric line below the x tick row, near the horizontal centre; a title set flush left is missed.
+
+**A short line near a figure disappeared from the Markdown**
+It was taken as a figure label. That needs all three: inside the figure's padded box, under 50 characters, and no larger than the body font. Raise the size test if a small subheading beside a figure is being swallowed.
+
 **The crop is blank or nearly blank**
 A drawing cluster of invisible or white strokes. Delete it in the repair pass. The blank check only catches uniformly coloured crops.
 

@@ -25,7 +25,7 @@ from collections import Counter
 
 import pymupdf
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # ================================================================ patterns
 
@@ -92,6 +92,17 @@ REF_ENTRY_RE = re.compile(r"^\s*\[?\d{1,3}[\].)]?\s+\S")
 
 # Optional content groups (layers) with these names are treated as watermarks.
 WM_LAYER_RE = re.compile(r"water\s*mark|draft|confidential|do\s*not\s*copy|sample|stamp|background", re.I)
+
+# Text printed inside a figure: axis ticks, panel letters, statistics printed on the plot.
+NUM_LABEL_RE = re.compile(r"^[+\-−]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:[.]\d+)?\s*%?$")
+PANEL_LABEL_RE = re.compile(r"^[(\[]?([A-Ha-h])[)\].:]?$")
+PVAL_RE = re.compile(r"(?i)\bp\s*(?:value)?\s*[<>=≤≥]\s*"
+                     r"(?:0?\.\d+|\d(?:\.\d+)?\s*(?:[x×]\s*10|e)\s*[-−]?\s*\d+|\d+)")
+NEQ_RE = re.compile(r"(?i)\bn\s*=\s*\d[\d,]*")
+CI_RE = re.compile(r"(?i)\d{2}\s*%\s*(?:CI|confidence interval)")
+SIG_RE = re.compile(r"^(?:\*{1,4}|n\.?s\.?|†|‡)$", re.I)
+FIG_LABEL_NUM_RE = re.compile(r"(?:fig(?:ure)?\.?|圖|图|図)\s*"
+                              r"([0-9]{1,3}|[IVX]{1,5})", re.I)
 
 LIGATURES = {"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi",
              "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"}
@@ -515,6 +526,224 @@ def recover_stub(table, rect, words, prose_blocks):
 
 
 # ================================================================ main extraction
+def label_value(t):
+    """Numeric value of an axis label, or None. Handles 1,000 / 25% / minus sign."""
+    s = t.strip().replace("−", "-").replace("%", "").replace(",", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _r2(xs, ys):
+    """Squared correlation. 1.0 means the points sit on a straight line."""
+    k = len(xs)
+    if k < 3:
+        return 0.0
+    mx, my = sum(xs) / k, sum(ys) / k
+    sxy = sum((a - mx) * (b - my) for a, b in zip(xs, ys))
+    sxx = sum((a - mx) ** 2 for a in xs)
+    syy = sum((b - my) ** 2 for b in ys)
+    if sxx <= 1e-9 or syy <= 1e-9:
+        return 0.0
+    return (sxy * sxy) / (sxx * syy)
+
+
+def axis_scale(values, positions):
+    """Linear or log, decided by which one fits the tick positions better.
+
+    Reading a log axis as linear is the error that silently multiplies a reported
+    value by an order of magnitude, so the fit is measured rather than assumed.
+    """
+    if len(values) < 3:
+        return "unknown"
+    lin = _r2(positions, values)
+    log = _r2(positions, [math.log10(v) for v in values]) if all(v > 0 for v in values) else 0.0
+    if log > 0.995 and log > lin + 0.02:
+        return "log"
+    if lin >= 0.98:
+        return "linear"
+    if log >= 0.98:
+        return "log"
+    return "unknown"                              # ticks not monotonic in position
+
+
+def axis_from(cands, rect, which):
+    """A row (x) or column (y) of numeric tick labels, with its scale and range."""
+    vals = [(it, label_value(it["t"])) for it in cands if NUM_LABEL_RE.match(it["t"])]
+    vals = [(it, v) for it, v in vals if v is not None]
+    if len(vals) < 3:
+        return None
+    if which == "x":
+        keys = [lambda it: round(((it["b"][1] + it["b"][3]) / 2) / 4.0)]
+        pos = lambda it: (it["b"][0] + it["b"][2]) / 2
+        reach, extent = 0.25 * rect.width, rect.width
+    else:
+        keys = [lambda it: round(it["b"][2] / 4.0),
+                lambda it: round(((it["b"][0] + it["b"][2]) / 2) / 4.0)]
+        pos = lambda it: (it["b"][1] + it["b"][3]) / 2
+        reach, extent = 0.25 * rect.height, rect.height
+    best = None
+    for key in keys:
+        groups = {}
+        for it, v in vals:
+            groups.setdefault(key(it), []).append((it, v))
+        for grp in groups.values():
+            if len(grp) < 3:
+                continue
+            spread = max(pos(it) for it, _ in grp) - min(pos(it) for it, _ in grp)
+            if spread < reach or spread > 3 * extent:
+                continue
+            if best is None or len(grp) > len(best):
+                best = grp
+    if not best:
+        return None
+    best.sort(key=lambda c: pos(c[0]))
+    # a real axis runs one way. Side-by-side panels give several runs of the same
+    # ticks; numbers inside a diagram (layer widths, node labels) give none.
+    runs, cur = [], [best[0]]
+    for prev, nxt in zip(best, best[1:]):
+        up = len(cur) < 2 or cur[1][1] > cur[0][1]
+        down = len(cur) < 2 or cur[1][1] < cur[0][1]
+        if (nxt[1] > prev[1] and up) or (nxt[1] < prev[1] and down):
+            cur.append(nxt)
+        else:
+            runs.append(cur)
+            cur = [nxt]
+    runs.append(cur)
+    runs = [r for r in runs if len(r) >= 3]
+    if not runs:
+        return None
+    grp = max(runs, key=len)
+    v = [x for _, x in grp]
+    p = [pos(it) for it, _ in grp]
+    cross = [(it["b"][1] + it["b"][3]) / 2 if which == "x" else (it["b"][0] + it["b"][2]) / 2
+             for it, _ in grp]
+    out = {"labels": [it["t"] for it, _ in grp], "values": v,
+           "scale": axis_scale(v, p), "range": [min(v), max(v)],
+           "at": round(sum(cross) / len(cross), 1)}
+    if len(runs) > 1:
+        out["repeats"] = len(runs)                 # the same axis on each panel
+    return out
+
+
+def figure_labels(pdict, words, rect, dropped, exclude, body_size, max_items=120):
+    """Text printed inside a figure: tick labels, axis titles, legend entries, annotations.
+
+    A born-digital PDF carries these as vector text, so they are read verbatim here
+    instead of being guessed from the crop. Two rules matter:
+      - the box is padded, because tick labels and axis titles usually sit just
+        outside the drawing that defines the figure;
+      - a rotated span inside a figure is an axis title, not a watermark, so it is
+        kept here even though the watermark rule dropped it from the prose.
+    """
+    pad = min(26.0, max(10.0, 0.10 * max(rect.width, rect.height)))
+    box = pymupdf.Rect(rect) + (-pad, -pad, pad, pad)
+
+    def wanted(r):
+        c = pymupdf.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
+        return box.contains(c) and not any(x.contains(c) for x in exclude)
+
+    items, rotated_kept, used = [], 0, set()
+    for bi, b in enumerate(pdict["blocks"]):
+        if b.get("type") != 0:
+            continue
+        taken = whole = 0
+        btext, bsize = "", 0.0
+        for l in b.get("lines", []):
+            rot = not horizontal(l)
+            keep = []
+            for s in l["spans"]:
+                if not s["text"].strip():
+                    continue
+                whole += 1
+                btext += s["text"]
+                bsize = max(bsize, s["size"])
+                sr = pymupdf.Rect(s["bbox"])
+                if not wanted(sr):
+                    continue
+                reason = dropped.get((round(sr.x0, 1), round(sr.y0, 1), s["text"].strip()))
+                if reason and reason != "rotated":
+                    continue                       # genuine watermark ink, stays out
+                if reason == "rotated":
+                    rotated_kept += 1
+                taken += 1
+                keep.append(s)
+            if not keep:
+                continue
+            t = clean_text("".join(s["text"] for s in keep)).strip()
+            if not t:
+                continue
+            r = pymupdf.Rect()
+            for s in keep:
+                r |= pymupdf.Rect(s["bbox"])
+            it = {"t": t, "b": [round(x, 1) for x in (r.x0, r.y0, r.x1, r.y1)],
+                  "s": round(max(s["size"] for s in keep), 1)}
+            if rot:
+                it["rot"] = True
+            items.append(it)
+        # a short block entirely inside the figure, in label-sized type, is a label and
+        # not a paragraph of its own. The size test protects a heading that happens to
+        # sit next to the figure.
+        if whole and taken == whole and len(btext.strip()) < 50 and bsize <= body_size + 0.2:
+            used.add(bi)
+    items.sort(key=lambda it: (it["b"][1], it["b"][0]))
+
+    out = {"text": items[:max_items], "text_items": len(items)}
+    if len(items) > max_items:
+        out["text_truncated"] = True
+    if items:                                      # so the crop keeps its own tick labels
+        lab = pymupdf.Rect(rect)
+        for it in items:
+            lab |= pymupdf.Rect(it["b"])
+        out["label_box"] = [round(x, 1) for x in (lab.x0, lab.y0, lab.x1, lab.y1)]
+
+    # ticks come from words, not lines: a row of tick numbers is often one text line
+    wcands = [{"t": clean_text(w[4]).strip(), "b": [round(x, 1) for x in w[:4]]}
+              for w in words if w[4].strip() and wanted(pymupdf.Rect(w[:4]))]
+    ticks = {}
+    for which in ("x", "y"):
+        a = axis_from(wcands, rect, which)
+        if a:
+            ticks[which] = a
+    if ticks:
+        out["ticks"] = ticks
+
+    titles = {}
+    rots = [it for it in items if it.get("rot") and len(it["t"]) > 2]
+    # a chart carries one or two rotated strings (its y titles). Dozens of them mean
+    # rotated data labels, as in an attention or correlation map, and no title at all.
+    if 1 <= len(rots) <= 8:
+        titles["y"] = max(rots, key=lambda it: len(it["t"]))["t"]
+    if "x" in ticks:
+        mid = (rect.x0 + rect.x1) / 2
+        below = [it for it in items if not it.get("rot") and it["b"][1] > ticks["x"]["at"]
+                 and len(it["t"]) > 2 and not NUM_LABEL_RE.match(it["t"])
+                 and abs((it["b"][0] + it["b"][2]) / 2 - mid) < 0.3 * rect.width]
+        if below:
+            titles["x"] = min(below, key=lambda it: it["b"][1])["t"]
+    if titles:
+        out["axis_titles"] = titles
+
+    panels = [{"label": PANEL_LABEL_RE.match(it["t"]).group(1).upper(), "b": it["b"]}
+              for it in items if PANEL_LABEL_RE.match(it["t"]) and it["s"] >= 0.9 * body_size]
+    if len(panels) >= 2:                           # a lone letter is not a panel grid
+        out["panels"] = panels
+
+    stats = []
+    for it in items:
+        for rx in (PVAL_RE, NEQ_RE, CI_RE):
+            for m in rx.finditer(it["t"]):
+                s = re.sub(r"\s+", " ", m.group(0)).strip()
+                if s not in stats:
+                    stats.append(s)
+        if SIG_RE.match(it["t"]) and it["t"] not in stats:
+            stats.append(it["t"])
+    if stats:
+        out["printed_stats"] = stats[:12]
+    return out, rotated_kept, used
+
+
 def extract(pdf_path, outdir, dpi=220, password=None):
     global _VOCAB
     _VOCAB = Counter()
@@ -634,11 +863,15 @@ def extract(pdf_path, outdir, dpi=220, password=None):
             if t not in wm_samples[reason] and len(wm_samples[reason]) < 8:
                 wm_samples[reason].append(t[:80])
 
-    blocks, removed_lines, wm_rects = [], [], []
+    def span_key(rect_like, text):
+        return (round(rect_like[0], 1), round(rect_like[1], 1), text.strip())
+
+    blocks, removed_lines, wm_rects, dropped_maps = [], [], [], []
     for pno in range(n):
         page = doc[pno]
         ph = page.rect.height
         pblocks, rl, rr = [], set(), []
+        dmap = {}                                    # span -> why it was dropped
         for bi, b in enumerate(dicts[pno]["blocks"]):
             if b.get("type") != 0:
                 continue
@@ -649,7 +882,11 @@ def extract(pdf_path, outdir, dpi=220, password=None):
                 key = (norm_chrome(raw.strip()), round(r.x0 / 15), round(r.y0 / 15))
                 if raw.strip() and len(raw.strip()) < 100 and key in recurring_lines:
                     band = r.y1 < 0.09 * ph or r.y0 > 0.91 * ph
-                    record("chrome" if band else "recurring", raw, max(s["size"] for s in l["spans"]))
+                    reason = "chrome" if band else "recurring"
+                    record(reason, raw, max(s["size"] for s in l["spans"]))
+                    for s in l["spans"]:
+                        if s["text"].strip():
+                            dmap[span_key(s["bbox"], s["text"])] = reason
                     rl.add((bi, li))
                     rr.append(r)
                     continue
@@ -672,6 +909,7 @@ def extract(pdf_path, outdir, dpi=220, password=None):
                         reason = "large-light"
                     if reason:
                         record(reason, s["text"], s["size"])
+                        dmap[span_key(s["bbox"], s["text"])] = reason
                         rr.append(sr)
                         continue
                     spans.append(s)
@@ -717,6 +955,7 @@ def extract(pdf_path, outdir, dpi=220, password=None):
         blocks.append(pblocks)
         removed_lines.append(rl)
         wm_rects.append(rr)
+        dropped_maps.append(dmap)
 
     # ---- page chrome: recurring text in the top and bottom bands
     band_counter = Counter()
@@ -729,7 +968,7 @@ def extract(pdf_path, outdir, dpi=220, password=None):
 
     units = []
     figures, equations, front_removed, stub_pages = [], [], [], []
-    fig_seq = eq_seq = 0
+    fig_seq = eq_seq = axis_recovered = 0
     size_hist2 = Counter()
 
     # ---- pass 2: per-page layout
@@ -941,19 +1180,34 @@ def extract(pdf_path, outdir, dpi=220, password=None):
                 loose.append(box)
             figs = loose
 
+        label_exclude = caption_rects + [tb["rect"] for tb in tblocks
+                                         if not tb["caption"] and tb["nchar"] >= 50]
+        label_bnos = set()
         for m in figs:
             fig_seq += 1
             fid = f"fig-p{pno+1:02d}-{fig_seq:02d}"
             os.makedirs(img_dir, exist_ok=True)
+            entry = {"id": fid, "page": pno + 1, "file": f"images/{fid}.png"}
+            try:
+                labels, kept, used = figure_labels(dicts[pno], words, pymupdf.Rect(m),
+                                                   dropped_maps[pno], label_exclude, body_prelim)
+                entry.update(labels)
+                axis_recovered += kept
+                label_bnos |= used
+            except Exception as e:
+                warnings.append(f"{fid}: label text not read ({e})")
+            # the crop stays the figure itself. label_box says where the labels around it
+            # are, for a wider re-crop in the repair pass when one is cut off.
             clip = (pymupdf.Rect(m) + (-3, -3, 3, 3)) & pr
             page.get_pixmap(clip=clip, dpi=dpi, annots=False).save(os.path.join(img_dir, fid + ".png"))
             page_units.append({"kind": "figure", "rect": pymupdf.Rect(m), "id": fid, "page": pno + 1})
-            figures.append({"id": fid, "page": pno + 1, "file": f"images/{fid}.png"})
+            figures.append(entry)
 
         fig_rects = [u["rect"] for u in page_units if u["kind"] == "figure"]
         for tb in tblocks:
-            if not tb["caption"] and any(overlap_frac(tb["rect"], fr) > 0.6 for fr in fig_rects):
-                continue                                       # axis tick / panel label
+            if not tb["caption"] and (tb["bno"] in label_bnos
+                                      or any(overlap_frac(tb["rect"], fr) > 0.6 for fr in fig_rects)):
+                continue                                       # axis label, panel letter, annotation
             tb["kind"] = "text"
             page_units.append(tb)
 
@@ -970,6 +1224,34 @@ def extract(pdf_path, outdir, dpi=220, password=None):
                     if f["id"] == u["id"]:
                         f["caption"] = v["text"][:300]
                 break
+
+    # ---- sentences in the body that cite each figure, so the description can be checked
+    body_sents = []
+    for u in units:
+        if u.get("kind") == "text" and not u.get("caption") and u.get("nchar", 0) >= 40:
+            body_sents.extend(re.split(r"(?<=[.!?。])\s+", u["text"]))
+    for f in figures:
+        m = FIG_LABEL_NUM_RE.search(f.get("caption", ""))
+        if not m:
+            continue
+        pat = re.compile(r"(?:fig(?:ure)?s?\.?|圖|图|図)\s*" + re.escape(m.group(1))
+                         + r"(?![0-9])", re.I)
+        cited = []
+        for sent in body_sents:
+            if len(sent) > 15 and pat.search(sent):
+                s = re.sub(r"\s+", " ", sent).strip()
+                if s not in cited:
+                    cited.append(s[:400])
+            if len(cited) >= 3:
+                break
+        if cited:
+            f["cited_by"] = cited
+
+    # rotated text recovered as an axis title is not a watermark: correct the count
+    if axis_recovered and wm_counts.get("rotated"):
+        wm_counts["rotated"] = max(0, wm_counts["rotated"] - axis_recovered)
+        if not wm_counts["rotated"]:
+            del wm_counts["rotated"]
 
     # ---------------------------------------------------------------- body font
     body_size = size_hist2.most_common(1)[0][0] if size_hist2 else body_prelim
@@ -1223,11 +1505,15 @@ def extract(pdf_path, outdir, dpi=220, password=None):
             "samples": samples[:20],
             "images_hidden": len(wm_images),
             "recurring_vector_marks_ignored": len(recurring_clusters),
+            "axis_text_recovered": axis_recovered,
         },
         "warnings": warnings}
     with open(os.path.join(outdir, "_worklist.json"), "w", encoding="utf-8") as f:
         json.dump(worklist, f, indent=1, ensure_ascii=False)
     summary = {k: v for k, v in worklist.items() if k not in ("chrome_removed", "front_matter_removed")}
+    # the label text belongs in the worklist file, not on stdout
+    summary["figures"] = [{k: v for k, v in f.items() if k not in ("text", "cited_by")}
+                          for f in figures]
     print(json.dumps(summary, indent=1, ensure_ascii=False)[:4000])
     return 0
 

@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.3.0] - 2026-09-26
+
+### Added
+
+- **Figure label text read from the PDF.** For every figure the worklist now carries the
+  text printed inside it as vector text with positions: `text` (each label with its box,
+  size and rotation), `ticks` (numeric tick labels per axis with their values, range and
+  measured `linear` / `log` / `unknown` scale, plus `repeats` when side-by-side panels
+  share an axis), `axis_titles`, `printed_stats` (p-values, `n =`, confidence-interval
+  mentions, significance marks), `panels` (panel letters with boxes, when two or more) and
+  `cited_by` (the body sentences citing that figure). Units, group names and printed
+  statistics are now exact instead of being guessed from pixels.
+- Axis scale is measured, not assumed: a tick row is accepted only when at least three
+  numeric labels run one way across the axis, so numbers inside a diagram (layer widths,
+  node labels) no longer produce a fake axis.
+- The figure pass in `SKILL.md` uses those strings verbatim, states the axis scale, checks
+  the description against the caption and the citing sentences, and records an
+  `unreadable` list in the conversion log for anything it could not read.
+- Fixture additions: numeric tick rows on both axes, a rotated y-axis title, an x-axis
+  title, a printed p-value and group size, and a body sentence citing the figure. Unit
+  tests for label parsing, scale fitting and axis detection: 45 tests in total.
+
+### Fixed
+
+- A rotated string inside a figure is read as an axis title instead of being dropped as a
+  watermark, and the watermark count no longer includes it (`axis_text_recovered`).
+- Axis labels and plot annotations that sit outside the figure's drawing no longer leak
+  into the Markdown as stray one-line paragraphs, which also kept the figure's caption
+  from being attached to it. A block is only treated as a label when it lies inside the
+  figure's padded box, is shorter than 50 characters and is set in label-sized type, so a
+  heading beside a figure is left alone.
+
+### Unchanged
+
+- The Markdown output of the three validation papers is byte-identical to 0.2.0. This
+  release adds data to the worklist and does not alter the conversion.
+
 ## [0.2.0] - 2026-09-22
 
 ### Added

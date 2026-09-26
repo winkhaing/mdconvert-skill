@@ -45,7 +45,8 @@ METHODS = [                                   # hand-set so that the line breaks
 ]
 BODY4 = ("Vertical transmission is difficult to demonstrate in the field because progeny "
          "cannot be linked to a known parent. A laboratory design removes that ambiguity, "
-         "at the cost of generalisability.")
+         "at the cost of generalisability. As Fig 1 shows, the proportion of positive "
+         "tissues increased with incubation time in every group.")
 REFS = [
     ["1. Meegan JM, Bailey CL. Rift Valley fever. In: Monath TP, editor. The",
      "arboviruses. Boca Raton: CRC Press; 1989. p. 51-76."],
@@ -138,12 +139,22 @@ def build(path):
 
     fx = col_rect(1, 372, 520)                        # figure: bar chart, right column
     p.draw_rect(pymupdf.Rect(fx.x0, fx.y0, fx.x1, fx.y0 + 110), color=(0.2, 0.2, 0.2), width=0.7)
+    for v in (0, 25, 50, 75, 100):                    # y ticks, right aligned outside the frame
+        lab = str(v)
+        w = pymupdf.Font("helv").text_length(lab, fontsize=6)
+        p.insert_text((fx.x0 - 3 - w, fx.y0 + 102 - v), lab, fontsize=6, fontname="helv")
+    p.insert_text((fx.x0 + 4, fx.y0 + 88), "Positive tissues (%)",  # rotated axis title
+                  fontsize=6.5, fontname="helv", rotate=90)
     for i, h in enumerate([28, 52, 76, 88]):
         bx = fx.x0 + 18 + i * 42
         p.draw_rect(pymupdf.Rect(bx, fx.y0 + 100 - h, bx + 24, fx.y0 + 100),
                     color=(0.1, 0.1, 0.1), fill=(0.45, 0.55, 0.75), width=0.4)
-        p.insert_text((bx + 4, fx.y0 + 108), f"d{7 * (i + 1)}", fontsize=6, fontname="helv")
-    p.insert_textbox(pymupdf.Rect(fx.x0, fx.y0 + 116, fx.x1, fx.y0 + 150),
+        p.insert_text((bx + 8, fx.y0 + 108), str(7 * (i + 1)), fontsize=6, fontname="helv")
+    p.insert_text((fx.x0 + 120, fx.y0 + 20), "p = 0.003, n = 25", fontsize=6, fontname="helv")
+    xt = "Days post exposure"                          # x axis title, below the tick row
+    p.insert_text((fx.x0 + (fx.width - pymupdf.Font("helv").text_length(xt, fontsize=6.5)) / 2,
+                   fx.y0 + 122), xt, fontsize=6.5, fontname="helv")
+    p.insert_textbox(pymupdf.Rect(fx.x0, fx.y0 + 134, fx.x1, fx.y0 + 168),
                      "Fig 1. Disseminated infection by day post exposure. Bars show the "
                      "percentage of tissues testing positive in each group.",
                      fontsize=8, fontname="tiro")
