@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.5.1] - 2026-09-27
+
+### Fixed
+
+- **Mathematics is no longer rewritten by the superscript pass.** In an expression a raised
+  run is an exponent and a lowered one an index, so 0.5.0 turned "1/M" into a Unicode
+  superscript one over a LaTeX subscript M, and a summation limit into a raised glyph. A
+  line is now recognised as mathematics and left exactly as printed when any of three
+  signals holds: a mathematics font (CMMI, CMSY, Symbol, STIX and the like), two or more
+  distinct mathematical symbols, or the shape of a short line built mostly of operators
+  rather than words. Prose exponents such as "kg/m²" and "mg L⁻¹" are unaffected.
+- **Greek letters recovered from an unmapped Symbol font.** Many PDFs embed Symbol without
+  a usable ToUnicode map, so alpha, beta and theta arrive as "a", "b" and "q", or in the
+  private-use block at U+F020. Both forms are mapped back, in the prose and in figure
+  labels alike. A Symbol span that already decoded to Greek is left alone.
+- **Glyphs with no Unicode mapping no longer reach the Markdown.** They arrived as NUL,
+  invisible in most viewers and quietly damaging to any tool reading the file. They are
+  now dropped, counted under `glyphs` in the worklist with the page and font that produced
+  them, and reported as a warning so the repair pass can check those spots against the
+  page image.
+
 ## [0.5.0] - 2026-09-27
 
 ### Added

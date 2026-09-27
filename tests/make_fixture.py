@@ -316,6 +316,39 @@ def build_preproof(path):
     doc.save(path)
 
 
+def build_math(path):
+    """A page of mathematics: a display equation with limits, and Greek in a Symbol font.
+
+    Exercises the rule that a raised run inside an expression is an exponent and must not
+    be rewritten as a raised glyph, and the handling of glyphs that carry no Unicode.
+    """
+    doc = pymupdf.open()
+    p = doc.new_page(width=PAGE.width, height=PAGE.height)
+    body = ("We estimate the posterior mean by averaging the draws obtained from the sampler. "
+            "Each draw is an independent realisation of the parameter vector, and the average "
+            "converges to the posterior mean as the number of draws grows. The estimator is "
+            "given in the equation below, and the same construction applies to every "
+            "component of the vector. Convergence was assessed with standard diagnostics. ") * 2
+    p.insert_textbox(pymupdf.Rect(M, 60, PAGE.width - M, 240), body, fontsize=10, fontname="tiro")
+
+    # a display equation, set the way a typesetter sets one: raised and lowered runs
+    x = run(p, 200, 300, [("w = ", 0)], size=11)
+    x = run(p, x, 300, [("1", 4)], size=9)
+    x = run(p, x, 300, [("/", 0)], size=11)
+    run(p, x, 300, [("M", -3)], size=9)
+
+    # Greek set in the Symbol font, which many PDFs embed without a Unicode map
+    p.insert_text((M, 340), "abq", fontsize=10, fontname="symb")
+    p.insert_text((M + 30, 340), " were held fixed throughout the experiment.",
+                  fontsize=10, fontname="tiro")
+
+    # a prose line whose exponent must still be raised
+    run(p, M, 360, [("Concentrations were reported in mg L", 0), ("-1", 3),
+                    (" in every group.", 0)], size=10)
+    doc.save(path)
+    doc.close()
+
+
 def build_cjk(path):
     doc = pymupdf.open()
     p = doc.new_page(width=PAGE.width, height=PAGE.height)

@@ -45,6 +45,7 @@ mdconvert does the layout work explicitly, then uses Claude's vision to do the p
 | Paragraph reconstruction | Lines are joined with hyphenation repair; a paragraph interrupted by a figure, a table, a footnote, a column break or a page break is rejoined, and the interrupting block is re-anchored after it |
 | Correct hyphenation | A line-end hyphen is decided against the document's own vocabulary, then simple rules: "classi-" + "fication" joins, "high-level", "2-year", "IgG-positive" and "SARS-CoV-2" keep their hyphen |
 | Clean characters | Ligature glyphs are expanded ("ﬁ" to "fi") and TeX-style spacing accents are recombined ("M¨uller" to "Müller"), so the text is searchable |
+| Greek and symbol glyphs repaired | A Symbol font embedded without a Unicode map gives "a", "b", "q" instead of alpha, beta, theta; both that and the private-use form are mapped back. A glyph with no mapping at all is dropped rather than emitted as a NUL, and is counted and warned about |
 | Superscripts and subscripts kept | A raised or lowered run is recognised from its type size and baseline, not from markup, which PDF does not carry. "ScD¹,⁴", "kg/m²", "CO₂", "previously.¹²", "Merative™". Unicode by default, so it renders in Notion, Word and plain text with no extension; `--sup-style latex`, `html` or `plain` for other targets |
 | Titles taken from metadata | The PDF's own metadata title is matched against the text and the matching blocks are merged, which repairs a title set over two lines. The font-size rule is the fallback |
 | Figures printed on their own page | A caption whose figure sits alone on the next page, as in an accepted manuscript with figures appended, is matched to that page. A band holding no drawing or image, or only a recurring stamp, is never cropped as a figure |
@@ -217,7 +218,7 @@ The split matters: geometry decides *where things are*, and only the questions t
 
 ## Validation
 
-`tests/` builds two synthetic articles with known ground truth and asserts the output contract in 71 tests.
+`tests/` builds two synthetic articles with known ground truth and asserts the output contract in 78 tests.
 
 The English fixture is a three-page, two-column article carrying a running header and page numbers, a licence notice above the title, an author line, hand-set line-end hyphens of both kinds, a display equation, a figure, a table whose row labels sit outside the ruled grid, a chart with numeric tick rows on both axes, a rotated y-axis title, an x-axis title, a printed p-value and group size, a sentence in the body citing the figure, a TeX-style accent, content after the references, a paragraph that continues across a column break, and five watermarks: a transparent diagonal stamp across body text, a declared watermark, text on a watermark layer, a large light DRAFT across the table, and a recurring stamp image. A third fixture is an Elsevier-style pre-proof: a publisher cover sheet, a title set over two lines, headings that are all one size, a diagonal pre-proof stamp, a figure printed on its own page after its caption, raised affiliation markers, a Vancouver citation marker, a chemical subscript and a squared unit. The Chinese fixture covers joining, captions, sections and references. Further tests cover scanned, encrypted and damaged files, and the text helpers directly.
 
@@ -255,6 +256,7 @@ Thresholds live in `scripts/mdconvert_extract.py`. The ones worth touching:
 | `PREPROOF_RE`, `COVER_RE` | pre-proof, accepted manuscript, PII, "to appear in" | What marks a restricted copy and a publisher cover sheet |
 | `OPEN_LICENCE_RE` | Creative Commons, CC-BY, open access | What counts as an open licence, which skips the permission gate |
 | script detection | under 13 characters, at most 0.82 times the line size, at least 0.1 of it off the baseline | What counts as a raised or lowered run. Tighten it if small capitals are being raised |
+| mathematics guard | a maths font, 2 distinct symbols from `MATH_CHARS`, or a short line under 120 characters with an operator and under half letters | Which lines the script pass leaves alone, because a raised run there is an exponent |
 | `SUP_MAP`, `SUB_MAP`, `SCRIPT_PASS` | Unicode raised and lowered glyphs; separators and already-raised marks | A character missing from the map falls back to `$^{...}$` in unicode style |
 | `COMPOUND_FIRST` | high, low, well, non, ... | Words that keep a line-end hyphen when the document itself gives no evidence |
 | figure label pad | 10 to 26 points, 10 percent of the figure | How far outside a figure a tick label or axis title is still collected |
@@ -307,4 +309,4 @@ The extractor depends on PyMuPDF, which is distributed under AGPL-3.0 or a comme
 
 If this tool contributes to published work, cite it through [CITATION.cff](CITATION.cff), or:
 
-> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.5.0. 2026. https://github.com/winkhaing/mdconvert-skill
+> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.5.1. 2026. https://github.com/winkhaing/mdconvert-skill

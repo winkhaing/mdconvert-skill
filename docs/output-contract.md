@@ -64,8 +64,12 @@ Everything removed under this section is listed in the conversion log.
   | `html` | `ScD<sup>1,4</sup>` | GitHub and other HTML-tolerant renderers |
   | `plain` | ScD1,4 | Flat, as before 0.5.0 |
 
+  Mathematics is exempt. In an expression a raised run is an exponent and a lowered one an index, so a line recognised as mathematics is left exactly as printed: "1/M" stays "1/M". A line counts as mathematics when it uses a mathematics font, carries two or more distinct mathematical symbols, or is short and built mostly of operators rather than words.
+
   In `unicode` style a run with no Unicode form falls back to `$^{...}$` for that run alone. Unicode has no raised comma, so separators stay on the baseline: `¹,⁴`. A raised `TM` becomes ™ and a raised `®`, `°` or dagger is left as printed, in every style. Table cell text is rebuilt by the table extractor without span information, so each page's own substitutions are replayed into its cells, keyed on three characters of preceding context.
 - A spacing accent placed before its letter, as TeX-produced PDFs emit it, is recombined: "M¨uller" becomes "Müller", "Doll´ar" becomes "Dollár". A prime after a digit ("5´UTR") is left alone.
+- A Symbol font embedded without a usable Unicode map is repaired: alpha, beta and theta arrive as "a", "b" and "q", or in the private-use block at U+F020, and both forms are mapped back, in the prose and in the figure labels. A Symbol span that already decoded to Greek is untouched.
+- A glyph carrying no Unicode mapping at all arrives as NUL. It is dropped rather than written into the file, and counted under `glyphs` in the worklist with the page and font that produced it, together with a warning.
 - Text is normalised to Unicode NFC.
 
 ## Paragraphs

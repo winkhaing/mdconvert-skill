@@ -93,9 +93,20 @@ Kept since 0.5.0, decided from type size and baseline offset rather than from ma
 - *A run set in smaller type on the same baseline is not raised.* Small capitals, a smaller font for an abbreviation, and a cell set two points down are all left alone, which is the intended trade: a false positive corrupts a word, a false negative only loses a baseline shift.
 - *Unicode has gaps.* There is no raised `q`, no lowered `b`, `c`, `d`, `f`, `g`, `w`, `y` or `z`, and no raised comma. A run with no Unicode form falls back to `$^{...}$`, which needs a KaTeX-capable renderer; separators stay on the baseline, so a marker prints `¹,⁴`.
 - *Table cells are repaired, not read.* The table extractor assembles a cell from characters and keeps no span information, so the substitutions found in the page's own text are replayed into its cells with three characters of preceding context. A unit or marker that appears only inside a table, never in the prose of that page, stays flat.
+- *Mathematics is exempt, by a heuristic.* A line judged to be an expression is left as printed, so its exponents stay flat text for the formula pass to read from the crop. The judgement can go either way at the margin: a one-line formula set entirely in the body font, with no symbol and no operator, is treated as prose; a prose line that is short and heavy with operators is treated as mathematics and keeps its markers flat.
 - *A run longer than 12 characters is ignored.* A whole line set small and slightly off the baseline is a layout quirk, not a superscript.
 
 *Workaround:* `--sup-style plain` restores the pre-0.5.0 flat output; `--sup-style latex` or `html` suits a renderer that prefers markup. `scripts.lines_marked` in the worklist counts the lines that changed.
+
+## Symbols and unmapped glyphs
+
+A PDF can embed a font with no usable map from glyph to character. Two cases are handled and one is not.
+
+- *Symbol.* Repaired. The encoding is known, so "a", "b", "q" and the private-use forms become alpha, beta, theta.
+- *No mapping at all.* The glyph arrives as NUL, carrying no information about what was printed. It is dropped and counted; the worklist names the page and the font, and the warning tells the repair pass to read those spots off the page image.
+- *Mapped to the wrong character.* Not detectable. A font whose map claims a Latin letter where a Greek one was printed passes through silently. TeX maths fonts (CMMI, CMSY) are the usual source, and the symptom is Latin letters where Greek belongs. Check any converted formula before reusing it.
+
+*Workaround:* `glyphs.samples` in the worklist points at the pages and fonts to check. For a document that is mostly mathematics, read the equations off the crops rather than trusting the extracted text.
 
 ## Hyphenation
 

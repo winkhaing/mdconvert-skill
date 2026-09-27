@@ -298,6 +298,36 @@ class ScriptStyles(unittest.TestCase):
         self.assertNotIn("¹", md)
 
 
+class Mathematics(unittest.TestCase):
+    """Expressions keep their shape, and unmapped glyphs are recovered or dropped."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="mdconvert-math-")
+        cls.pdf = os.path.join(cls.tmp, "maths.pdf")
+        cls.out = os.path.join(cls.tmp, "out")
+        make_fixture.build_math(cls.pdf)
+        r, cls.md, cls.work = convert(cls.pdf, cls.out)
+        assert r.returncode == 0, r.stderr
+
+    def test_expression_is_not_rewritten_as_raised_glyphs(self):
+        # the numerator and denominator are a raised and a lowered run in the PDF
+        self.assertIn("1/M", self.md)
+        self.assertNotIn("¹/", self.md)
+        self.assertNotIn("$_{M}$", self.md)
+
+    def test_symbol_font_greek_recovered(self):
+        self.assertIn("αβθ were held fixed", self.md)
+        self.assertNotIn("abq", self.md)
+        self.assertEqual(self.work["glyphs"]["symbol_font_repaired"], 3)
+
+    def test_prose_exponent_still_raised(self):
+        self.assertIn("mg L⁻¹", self.md)
+
+    def test_no_control_characters_reach_the_markdown(self):
+        self.assertFalse(any(ord(c) < 32 and c not in "\n\t" for c in self.md))
+
+
 class ChineseArticle(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -463,6 +493,30 @@ class TextHelpers(unittest.TestCase):
         lowered = [span("CO", 9.0, 545.0), span("2", 5.6, 547.0)]
         self.assertEqual(mx.script_line(raised, "unicode"), "PhD¹,⁴")
         self.assertEqual(mx.script_line(lowered, "unicode"), "CO₂")
+
+    def test_math_line_is_left_alone(self):
+        def span(t, font="Times", size=10.0):
+            return {"text": t, "font": font, "size": size, "flags": 4,
+                    "origin": (0.0, 100.0), "bbox": [0, 90, 10, 100]}
+        self.assertTrue(mx.math_line([span("θ = "), span("1"), span("/"), span("M")]))
+        self.assertTrue(mx.math_line([span("x"), span("i", font="CMMI10")]))
+        self.assertTrue(mx.math_line([span("∑ x ≤ ∞")]))
+        self.assertFalse(mx.math_line([span("A. Author, PhD"), span("1,4")]))
+        self.assertFalse(mx.math_line([span("Overweight (BMI 25-29.9 kg/m"), span("2")]))
+        # a sentence that merely mentions a value is prose, not an expression
+        self.assertFalse(mx.math_line(
+            [span("We set the significance level at 0.05 and report every comparison below.")]))
+
+    def test_repair_symbol(self):
+        self.assertEqual(mx.repair_symbol("abq", "Symbol"), "αβθ")
+        self.assertEqual(mx.repair_symbol("", "SymbolMT"), "αβθ")
+        self.assertEqual(mx.repair_symbol("å", "Symbol"), "∑")
+        self.assertEqual(mx.repair_symbol("αβ", "Symbol"), "αβ")  # already mapped
+        self.assertEqual(mx.repair_symbol("abq", "Times-Roman"), "abq")
+
+    def test_clean_text_drops_unmapped_glyphs(self):
+        self.assertEqual(mx.clean_text("The value \x00\x00 was fixed"), "The value  was fixed")
+        self.assertEqual(mx.clean_text("keep\ttab"), "keep\ttab")
 
     def test_apply_script_pairs_needs_context(self):
         pairs = [("/m2", "/m²"), ("f.a", "f.ᵃ")]

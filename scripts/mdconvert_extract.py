@@ -26,7 +26,7 @@ from collections import Counter
 
 import pymupdf
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 # ================================================================ patterns
 
@@ -147,6 +147,28 @@ SCRIPT_PASS = set(",;.\u00b7*\u2020\u2021\u00a7\u00b6\u2019'"
                   "\u00ae\u2122\u00a9\u2120\u00b0\u2032\u2033")
 # Whole runs the publisher sets raised but Unicode carries as one character.
 SCRIPT_WHOLE = {"TM": "\u2122", "SM": "\u2120", "(R)": "\u00ae", "(C)": "\u00a9"}
+
+# The Adobe Symbol encoding. A Symbol-font span whose text arrives as plain ASCII, or in
+# the private-use block at U+F020, was not mapped to Unicode by the extractor: in that
+# encoding "a" is alpha, "b" is beta and "q" is theta, so the letters are recoverable.
+SYMBOL_MAP = {
+    "a": "\u03b1", "b": "\u03b2", "c": "\u03c7", "d": "\u03b4", "e": "\u03b5", "f": "\u03c6",
+    "g": "\u03b3", "h": "\u03b7", "i": "\u03b9", "j": "\u03d5", "k": "\u03ba", "l": "\u03bb",
+    "m": "\u03bc", "n": "\u03bd", "o": "\u03bf", "p": "\u03c0", "q": "\u03b8", "r": "\u03c1",
+    "s": "\u03c3", "t": "\u03c4", "u": "\u03c5", "v": "\u03d6", "w": "\u03c9", "x": "\u03be",
+    "y": "\u03c8", "z": "\u03b6",
+    "A": "\u0391", "B": "\u0392", "C": "\u03a7", "D": "\u0394", "E": "\u0395", "F": "\u03a6",
+    "G": "\u0393", "H": "\u0397", "I": "\u0399", "J": "\u03d1", "K": "\u039a", "L": "\u039b",
+    "M": "\u039c", "N": "\u039d", "O": "\u039f", "P": "\u03a0", "Q": "\u0398", "R": "\u03a1",
+    "S": "\u03a3", "T": "\u03a4", "U": "\u03a5", "V": "\u03d2", "W": "\u03a9", "X": "\u039e",
+    "Y": "\u03a8", "Z": "\u0396",
+    "\u00a3": "\u2264", "\u00b3": "\u2265", "\u00b9": "\u2260", "\u00b1": "\u00b1",
+    "\u00b4": "\u00d7", "\u00b8": "\u00f7", "\u00a5": "\u221e", "\u00ae": "\u2192",
+    "\u00ac": "\u2190", "\u00b6": "\u2202", "\u00d1": "\u2207", "\u00d6": "\u221a",
+    "\u00e5": "\u2211", "\u00f2": "\u222b", "\u00d5": "\u220f", "\u00ce": "\u2208",
+    "@": "\u2245", '"': "\u2200", "$": "\u2203", "-": "\u2212"}
+SYMBOL_FONT_RE = re.compile(r"symbol", re.I)
+CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 SCRIPT_DONE = set(SUP_MAP.values()) | set(SUB_MAP.values())
 SCRIPT_STYLES = ("unicode", "latex", "html", "plain")
 
@@ -231,6 +253,47 @@ def apply_script_pairs(s, pairs):
     return s
 
 
+def repair_symbol(text, font):
+    """Recover Greek letters and operators from an unmapped Symbol-font span.
+
+    Some PDFs embed the Symbol font without a usable ToUnicode map, so alpha, beta and
+    theta arrive as "a", "b" and "q", or in the private-use block at U+F020. Both are
+    put back here. A Symbol span that already decoded to Greek is left alone.
+    """
+    if not text or not SYMBOL_FONT_RE.search(font or ""):
+        return text
+    out, hit = [], False
+    for ch in text:
+        c = chr(ord(ch) - 0xF000) if 0xF020 <= ord(ch) <= 0xF0FF else ch
+        if c in SYMBOL_MAP and (c != ch or ord(ch) < 0x0250):
+            out.append(SYMBOL_MAP[c])
+            hit = True
+        else:
+            out.append(ch)
+    return "".join(out) if hit else text
+
+
+def math_line(spans):
+    """True when a line is mathematics rather than prose.
+
+    In an expression a raised run is an exponent and a lowered one an index, so turning
+    them into raised glyphs destroys the expression: "1/M" must not become the Unicode
+    superscript one over a LaTeX subscript M. Three signals, any one of which is enough:
+    a mathematics font, two or more distinct mathematical symbols, or the shape of a
+    short line built mostly out of operators rather than words.
+    """
+    txt = "".join(s["text"] for s in spans)
+    body = len(txt.strip())
+    if not body:
+        return False
+    if any(MATH_FONT_RE.search(s.get("font") or "") for s in spans):
+        return True
+    if sum(1 for ch in set(txt) if ch in MATH_CHARS) >= 2:
+        return True
+    letters = sum(1 for ch in txt if ch.isalpha())
+    return body < 120 and any(ch in MATH_OPS for ch in txt) and letters < 0.5 * body
+
+
 def script_line(spans, style, pairs=None):
     """Join a line's spans, marking the raised and lowered ones.
 
@@ -239,7 +302,7 @@ def script_line(spans, style, pairs=None):
     baseline against the dominant baseline. Small capitals share the baseline and are
     therefore left alone.
     """
-    if style == "plain":
+    if style == "plain" or math_line(spans):
         return "".join(s["text"] for s in spans)
     real = [s for s in spans if s["text"].strip()]
     if len(real) < 2:
@@ -273,12 +336,17 @@ def script_line(spans, style, pairs=None):
 
 
 def clean_text(s):
-    """Expand ligatures, recombine spacing accents, normalise to NFC."""
+    """Expand ligatures, recombine spacing accents, drop unmapped glyphs, normalise to NFC."""
     if not s:
         return s
     for k, v in LIGATURES.items():
         if k in s:
             s = s.replace(k, v)
+    # A glyph the font could not map to Unicode arrives as NUL or another control
+    # character. It carries no text, and a NUL in a Markdown file breaks tooling
+    # silently, so it is dropped here and counted in the worklist instead.
+    if CONTROL_RE.search(s):
+        s = CONTROL_RE.sub("", s)
     s = ACCENT_RE.sub(lambda m: ("i" if m.group(2) == "\u0131" else m.group(2)) + SPACING_ACCENTS[m.group(1)], s)
     return unicodedata.normalize("NFC", s)
 
@@ -1023,7 +1091,8 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
     if sup_style not in SCRIPT_STYLES:
         warnings.append(f"unknown sup style {sup_style!r}; using unicode")
         sup_style = "unicode"
-    script_lines = 0
+    script_lines = symbol_fixed = unmapped = 0
+    unmapped_samples = []
 
     # ---- publication status. Nothing is written until a restricted copy is confirmed.
     try:
@@ -1183,6 +1252,20 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
                         dmap[span_key(s["bbox"], s["text"])] = reason
                         rr.append(sr)
                         continue
+                    # a Symbol-font span the extractor could not map: put the Greek back.
+                    # The span dict is the one the figure pass reads, so this repairs
+                    # axis titles and legends too.
+                    fixed = repair_symbol(s["text"], s.get("font"))
+                    if fixed != s["text"]:
+                        s["text"] = fixed
+                        symbol_fixed += len(fixed)
+                    lost = len(CONTROL_RE.findall(s["text"]))
+                    if lost:
+                        unmapped += lost
+                        if len(unmapped_samples) < 8:
+                            unmapped_samples.append(
+                                {"page": pno + 1, "font": s.get("font"),
+                                 "size": round(s["size"], 1), "glyphs": lost})
                     spans.append(s)
                 if not any(s["text"].strip() for s in spans):
                     rl.add((bi, li))
@@ -1823,6 +1906,9 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
     if cap_tab != n_tab:
         warnings.append(f"table captions={cap_tab} but markdown tables={n_tab}: check pages against the PDF")
 
+    if unmapped:
+        warnings.append(f"{unmapped} glyphs carried no Unicode mapping and were dropped; "
+                        f"check those spots against the page image")
     samples = list(declared_samples)
     for reason in ("declared", "layer", "transparent", "large-light", "recurring", "rotated"):
         samples.extend(wm_samples.get(reason, []))
@@ -1831,6 +1917,8 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
         "document": docinfo,
         "markdown": os.path.basename(md_path), "body_font_size": body_size,
         "scripts": {"style": sup_style, "lines_marked": script_lines},
+        "glyphs": {"symbol_font_repaired": symbol_fixed,
+                   "unmapped_dropped": unmapped, "samples": unmapped_samples},
         "figures": figures, "equations": equations,
         "tables": n_tab, "figure_captions": cap_fig, "table_captions": cap_tab,
         "table_stub_columns_recovered": stub_pages,

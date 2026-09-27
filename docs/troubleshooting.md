@@ -58,6 +58,15 @@ The PDF metadata carries no title, so the merge had nothing to match against. Jo
 **Notion shows `$^{1,4}$` as literal text**
 Notion's Markdown import does not turn `$...$` into an inline equation. Convert with the default `--sup-style unicode`, which needs no renderer. Only a run with no Unicode form falls back to `$...$`; fix those few by hand, or select the run in Notion and press Ctrl+Shift+E to make it an inline equation.
 
+**An equation came out mangled, with raised digits or a stray `$_{M}$`**
+Fixed in 0.5.1: a line recognised as mathematics is left as printed. If it still happens, the line carried no mathematics font, fewer than two distinct symbols from `MATH_CHARS`, and reads as prose by length. Convert with `--sup-style plain` and read the equation off its crop.
+
+**Greek letters come out as Latin ones**
+An unmapped Symbol font gives "a", "b", "q" for alpha, beta, theta; that case is repaired. A TeX maths font (CMMI, CMSY) whose map claims the wrong character is not detectable and passes through silently, so check any formula before reusing it. Look at `glyphs` in the worklist for the pages and fonts involved.
+
+**Text is missing where a symbol should be**
+The glyph carried no Unicode mapping and was dropped. `glyphs.unmapped_dropped` counts them and `glyphs.samples` names the page and font; read those spots off the page image.
+
 **Markers are still flat**
 Check `scripts.lines_marked` in the worklist. Zero means no run in the document was both smaller than its line and off its baseline: some typesetters raise a marker without shrinking it, and that case is not detected. Check the style too: `plain` is the flat setting.
 
