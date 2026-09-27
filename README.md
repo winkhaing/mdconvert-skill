@@ -114,6 +114,8 @@ In claude.ai, go to Customize, then Skills, click the plus button, choose Create
 
 The skill then syncs to Claude Code and to the desktop app automatically; `/skills` lists what has arrived. Skills cannot be uploaded from inside Claude Code, only from the web.
 
+Before the skill can run, code execution must be on: Settings, then Capabilities, then "Code execution and file creation". Without it the skill uploads and appears in the list but cannot run the extractor. On Team and Enterprise the equivalent switch is "Cloud code execution and file creation", under Organization settings, Plugins and skills, on the Policy tab.
+
 Skills are available on Free, Pro, Max, Team and Enterprise plans. On Team and Enterprise an owner can turn off skill creation, in which case the upload option is missing and the skill has to be provisioned for the organisation instead.
 
 If the interface accepts only a single file, build the self-contained variant instead, which inlines the extractor into the skill file:
