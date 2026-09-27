@@ -45,6 +45,7 @@ mdconvert does the layout work explicitly, then uses Claude's vision to do the p
 | Paragraph reconstruction | Lines are joined with hyphenation repair; a paragraph interrupted by a figure, a table, a footnote, a column break or a page break is rejoined, and the interrupting block is re-anchored after it |
 | Correct hyphenation | A line-end hyphen is decided against the document's own vocabulary, then simple rules: "classi-" + "fication" joins, "high-level", "2-year", "IgG-positive" and "SARS-CoV-2" keep their hyphen |
 | Clean characters | Ligature glyphs are expanded ("ﬁ" to "fi") and TeX-style spacing accents are recombined ("M¨uller" to "Müller"), so the text is searchable |
+| Superscripts and subscripts kept | A raised or lowered run is recognised from its type size and baseline, not from markup, which PDF does not carry. "ScD¹,⁴", "kg/m²", "CO₂", "previously.¹²", "Merative™". Unicode by default, so it renders in Notion, Word and plain text with no extension; `--sup-style latex`, `html` or `plain` for other targets |
 | Titles taken from metadata | The PDF's own metadata title is matched against the text and the matching blocks are merged, which repairs a title set over two lines. The font-size rule is the fallback |
 | Figures printed on their own page | A caption whose figure sits alone on the next page, as in an accepted manuscript with figures appended, is matched to that page. A band holding no drawing or image, or only a recurring stamp, is never cropped as a figure |
 | Consistent headings | One `#` title, `##` sections, `###` subsections, assigned from document-wide font size and weight evidence rather than per-page guesses. Run-together headings such as "Results Study 1" are split |
@@ -140,7 +141,8 @@ Claude runs the extractor, reads each figure crop and each formula crop, repairs
 ### From the command line
 
 ```bash
-python3 scripts/mdconvert_extract.py INPUT.pdf OUTDIR [--dpi 220] [--password PW]
+python3 scripts/mdconvert_extract.py INPUT.pdf OUTDIR [--dpi 220] [--password PW] \
+        [--confirm-restricted] [--sup-style unicode|latex|html|plain]
 ```
 
 | Exit code | Meaning |
@@ -152,6 +154,8 @@ python3 scripts/mdconvert_extract.py INPUT.pdf OUTDIR [--dpi 220] [--password PW
 | other | Unhandled error, see the traceback |
 
 `--dpi` sets the resolution of the figure crops. 220 suits screen reading; 300 or more suits reuse in a manuscript, at a larger file size.
+
+`--sup-style` decides how superscripts and subscripts are written. `unicode`, the default, needs no renderer and is the right choice for Notion, Word, Slack and plain text; `latex` writes `$^{1,4}$` for Obsidian, Quarto and Pandoc; `html` writes `<sup>1,4</sup>` for GitHub; `plain` flattens, as versions before 0.5.0 did.
 
 ## Output layout
 
@@ -213,9 +217,9 @@ The split matters: geometry decides *where things are*, and only the questions t
 
 ## Validation
 
-`tests/` builds two synthetic articles with known ground truth and asserts the output contract in 53 tests.
+`tests/` builds two synthetic articles with known ground truth and asserts the output contract in 71 tests.
 
-The English fixture is a three-page, two-column article carrying a running header and page numbers, a licence notice above the title, an author line, hand-set line-end hyphens of both kinds, a display equation, a figure, a table whose row labels sit outside the ruled grid, a chart with numeric tick rows on both axes, a rotated y-axis title, an x-axis title, a printed p-value and group size, a sentence in the body citing the figure, a TeX-style accent, content after the references, a paragraph that continues across a column break, and five watermarks: a transparent diagonal stamp across body text, a declared watermark, text on a watermark layer, a large light DRAFT across the table, and a recurring stamp image. A third fixture is an Elsevier-style pre-proof: a publisher cover sheet, a title set over two lines, headings that are all one size, a diagonal pre-proof stamp, and a figure printed on its own page after its caption. The Chinese fixture covers joining, captions, sections and references. Further tests cover scanned, encrypted and damaged files, and the text helpers directly.
+The English fixture is a three-page, two-column article carrying a running header and page numbers, a licence notice above the title, an author line, hand-set line-end hyphens of both kinds, a display equation, a figure, a table whose row labels sit outside the ruled grid, a chart with numeric tick rows on both axes, a rotated y-axis title, an x-axis title, a printed p-value and group size, a sentence in the body citing the figure, a TeX-style accent, content after the references, a paragraph that continues across a column break, and five watermarks: a transparent diagonal stamp across body text, a declared watermark, text on a watermark layer, a large light DRAFT across the table, and a recurring stamp image. A third fixture is an Elsevier-style pre-proof: a publisher cover sheet, a title set over two lines, headings that are all one size, a diagonal pre-proof stamp, a figure printed on its own page after its caption, raised affiliation markers, a Vancouver citation marker, a chemical subscript and a squared unit. The Chinese fixture covers joining, captions, sections and references. Further tests cover scanned, encrypted and damaged files, and the text helpers directly.
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -232,7 +236,7 @@ The pipeline was also checked against three structurally different real papers:
 
 The counts are reported against the captions printed in each paper, and every shortfall appeared as a warning in the worklist rather than as a silent loss. The PLOS row is the point: two reference numbers were not recoverable from the text layer, and the tool reported the gap instead of renumbering the list to look complete.
 
-The last column is the label-reading pass. On the four ResNet plots it returned the tick values, the linear scale, the panel repeat count and both axis titles, and on the three architecture diagrams it correctly returned no axis at all rather than mistaking layer widths for ticks. The Markdown output of all three papers is byte-identical to version 0.2.0: the label data is added to the worklist, and nothing in the conversion changed.
+The last column is the label-reading pass. On the four ResNet plots it returned the tick values, the linear scale, the panel repeat count and both axis titles, and on the three architecture diagrams it correctly returned no axis at all rather than mistaking layer widths for ticks. The Markdown output of all three papers was byte-identical from 0.2.0 through 0.4.0: those versions added worklist data and gates, and nothing in the conversion changed. 0.5.0 is the first release since then to change the text, and only where a run was raised or lowered in the source.
 
 ## Tuning
 
@@ -250,6 +254,8 @@ Thresholds live in `scripts/mdconvert_extract.py`. The ones worth touching:
 | vector cluster minimum | 1.2 percent of page area, 0.3 percent next to a caption | Lower it to catch small line diagrams, at the cost of picking up rules and decorations |
 | `PREPROOF_RE`, `COVER_RE` | pre-proof, accepted manuscript, PII, "to appear in" | What marks a restricted copy and a publisher cover sheet |
 | `OPEN_LICENCE_RE` | Creative Commons, CC-BY, open access | What counts as an open licence, which skips the permission gate |
+| script detection | under 13 characters, at most 0.82 times the line size, at least 0.1 of it off the baseline | What counts as a raised or lowered run. Tighten it if small capitals are being raised |
+| `SUP_MAP`, `SUB_MAP`, `SCRIPT_PASS` | Unicode raised and lowered glyphs; separators and already-raised marks | A character missing from the map falls back to `$^{...}$` in unicode style |
 | `COMPOUND_FIRST` | high, low, well, non, ... | Words that keep a line-end hyphen when the document itself gives no evidence |
 | figure label pad | 10 to 26 points, 10 percent of the figure | How far outside a figure a tick label or axis title is still collected |
 | tick row minimum | 3 numeric labels running one way, spanning 25 percent of the axis | Raise it to be stricter about what counts as an axis |
@@ -301,4 +307,4 @@ The extractor depends on PyMuPDF, which is distributed under AGPL-3.0 or a comme
 
 If this tool contributes to published work, cite it through [CITATION.cff](CITATION.cff), or:
 
-> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.4.0. 2026. https://github.com/winkhaing/mdconvert-skill
+> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.5.0. 2026. https://github.com/winkhaing/mdconvert-skill

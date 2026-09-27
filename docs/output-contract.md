@@ -55,6 +55,16 @@ Everything removed under this section is listed in the conversion log.
 ## Characters
 
 - Ligature glyphs are expanded: ﬀ ﬁ ﬂ ﬃ ﬄ become ff fi fl ffi ffl.
+- Superscripts and subscripts are kept, not flattened. PDF carries them as a raised or lowered run rather than as markup, so a plain join gives "ScD1,4" and "kg/m2". A run is raised or lowered when it is set in smaller type than the rest of its line *and* sits off that line's baseline, which leaves small capitals alone.
+
+  | Style | Written as | Use |
+  | --- | --- | --- |
+  | `unicode` (default) | ScD¹,⁴ · kg/m² · CO₂ · previously.¹² | Renders with no extension: Notion, Word, Slack, plain text |
+  | `latex` | `ScD$^{1,4}$` · `CO$_{2}$` | Obsidian, Quarto, Pandoc, anything with KaTeX |
+  | `html` | `ScD<sup>1,4</sup>` | GitHub and other HTML-tolerant renderers |
+  | `plain` | ScD1,4 | Flat, as before 0.5.0 |
+
+  In `unicode` style a run with no Unicode form falls back to `$^{...}$` for that run alone. Unicode has no raised comma, so separators stay on the baseline: `¹,⁴`. A raised `TM` becomes ™ and a raised `®`, `°` or dagger is left as printed, in every style. Table cell text is rebuilt by the table extractor without span information, so each page's own substitutions are replayed into its cells, keyed on three characters of preceding context.
 - A spacing accent placed before its letter, as TeX-produced PDFs emit it, is recombined: "M¨uller" becomes "Müller", "Doll´ar" becomes "Dollár". A prime after a digit ("5´UTR") is left alone.
 - Text is normalised to Unicode NFC.
 

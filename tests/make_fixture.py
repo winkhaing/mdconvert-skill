@@ -87,6 +87,19 @@ def lines(page, x, y, rows, size=9, font="tiro"):
         page.insert_text((x, y + k * LH), row, fontsize=size, fontname=font)
 
 
+def run(page, x, y, parts, size=9, font="tiro"):
+    """Draw one line as a sequence of (text, shift) runs.
+
+    A positive shift raises the run and a negative one lowers it, both in smaller type, as
+    a publisher sets an affiliation marker, a Vancouver citation or a chemical subscript.
+    """
+    for text, shift in parts:
+        s = size if not shift else round(size * 0.62, 1)
+        page.insert_text((x, y - shift), text, fontsize=s, fontname=font)
+        x += pymupdf.Font(font).text_length(text, fontsize=s)
+    return x
+
+
 def declared_watermark(doc, page, text, pos):
     """Draw text wrapped in /Artifact <</Subtype /Watermark>> marked content, as Acrobat does."""
     page.insert_text(pos, text, fontsize=22, fontname="helv", color=(0.75, 0.75, 0.75))
@@ -185,8 +198,11 @@ def build(path):
         for ci, cell in enumerate((a, b)):
             cr = pymupdf.Rect(grid_x0 + ci * cw, y, grid_x0 + (ci + 1) * cw, y + rh)
             p2.draw_rect(cr, color=(0.25, 0.25, 0.25), width=0.5)
-            p2.insert_text((cr.x0 + 4, cr.y0 + 12), cell, fontsize=8,
-                           fontname="hebo" if ri == 0 else "tiro")
+            if ri == 0 and ci == 1:                    # raised footnote marker in a header cell
+                run(p2, cr.x0 + 4, cr.y0 + 12, [(cell, 0), ("a", 3)], size=8, font="hebo")
+            else:
+                p2.insert_text((cr.x0 + 4, cr.y0 + 12), cell, fontsize=8,
+                               fontname="hebo" if ri == 0 else "tiro")
         y += rh
 
     p2.insert_text((M, 330), "References", fontsize=11, fontname="hebo")
@@ -257,7 +273,8 @@ def build_preproof(path):
     p2.insert_text((M, 70), "Vector competence of Aedes aegypti after prolonged extrinsic",
                    fontsize=11, fontname="hebo")           # the title, set over two blocks
     p2.insert_text((M, 96), "incubation at field temperatures", fontsize=11, fontname="hebo")
-    p2.insert_text((M, 124), "A. Author, PhD1; B. Coauthor, MD2", fontsize=9, fontname="tiro")
+    run(p2, M, 124, [("A. Author, PhD", 0), ("1,4", 3),      # raised affiliation markers
+                     ("; B. Coauthor, MD", 0), ("2", 3)])
     p2.insert_text((M, 160), "Abstract", fontsize=11, fontname="hebo")
     p2.insert_textbox(pymupdf.Rect(M, 172, PAGE.width - M, 250), BODY1, fontsize=9, fontname="tiro")
     p2.insert_text((M, 280), "Introduction", fontsize=11, fontname="hebo")
@@ -265,6 +282,10 @@ def build_preproof(path):
     p2.insert_text((M, 400), "Methods", fontsize=11, fontname="hebo")
     p2.insert_text((M, 424), "Outcome definitions", fontsize=11, fontname="hebo")
     p2.insert_textbox(pymupdf.Rect(M, 436, PAGE.width - M, 520), BODY4, fontsize=9, fontname="tiro")
+    run(p2, M, 545, [("Chambers were held at 28 C with CO", 0), ("2", -2),   # lowered
+                     (" at 5 per cent, as described previously.", 0), ("12", 3)])
+    run(p2, M, 560, [("Dose was expressed per m", 0), ("3", 3),
+                     (" of chamber volume in every group.", 0)])
     stamp(p2)
 
     # ---------------------------------------------------------- page 3: caption, figure overleaf

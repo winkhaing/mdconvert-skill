@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.5.0] - 2026-09-27
+
+### Added
+
+- **Superscripts and subscripts are kept.** PDF carries a raised or lowered run as
+  geometry, not as markup, so every version before this one flattened affiliation markers,
+  Vancouver citations, units and chemical formulae: "ScD1,4", "kg/m2", "CO2",
+  "previously.12". A run is now recognised when it is set in smaller type than the rest of
+  its line *and* sits off that line's baseline, which leaves small capitals alone, and is
+  written in one of four styles.
+- `--sup-style unicode|latex|html|plain`, default `unicode`: ScD¹,⁴ and CO₂ need no
+  renderer, so they show correctly in Notion, Word, Slack and a plain text editor, where
+  inline `$...$` does not. `latex` writes `$^{1,4}$` for Obsidian, Quarto and Pandoc,
+  `html` writes `<sup>1,4</sup>` for GitHub, and `plain` restores the old flat output.
+  In `unicode` style a run with no Unicode form falls back to `$^{...}$` for that run alone.
+- A raised `TM` becomes ™ and a raised `®`, `°`, prime or dagger is left as printed, in
+  every style, so "MerativeTM MarketScan®" comes out as "Merative™ MarketScan®".
+- Table cells are repaired. The table extractor assembles a cell from characters and keeps
+  no span information, so each page's own substitutions are replayed into its cells, keyed
+  on three characters of preceding context: "kg/m²", "Abs. Std. Diff.ᵃ", "(2ⁿᵈ gen)".
+- `scripts` in the worklist reports the style used and how many lines changed.
+
+### Changed
+
+- Tests: 53 to 71. The English fixture gains a raised footnote marker in a table header
+  cell; the pre-proof fixture gains raised affiliation markers, a Vancouver citation
+  marker, a lowered chemical subscript and a squared unit.
+
 ## [0.4.0] - 2026-09-27
 
 ### Added

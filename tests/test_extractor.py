@@ -100,11 +100,16 @@ class TwoColumnArticle(unittest.TestCase):
         self.assertRegex(self.md, r"_<u>Table 1\..*</u>_")
 
     def test_table_row_labels_recovered(self):
-        self.assertIn("|  | Tested | Positive |", self.md)
+        self.assertIn("|  | Tested | Positive\u1d43 |", self.md)
         self.assertIn("| Legs & Wings | 25 | 12 |", self.md)
         self.assertIn("| Ovaries | 25 | 1 |", self.md)
         self.assertEqual(self.work["table_stub_columns_recovered"], [2])
         self.assertNotRegex(self.md, r"(?m)^Legs & Wings")      # not left behind as prose
+
+    def test_table_footnote_marker_raised(self):
+        # the cell text is rebuilt without span information, so the marker is replayed
+        self.assertIn("Positiveᵃ", self.md)
+        self.assertNotIn("Positivea", self.md)
 
     def test_figure_extracted_and_linked(self):
         self.assertEqual(len(self.work["figures"]), 1)
@@ -240,6 +245,58 @@ class PreProofArticle(unittest.TestCase):
     def test_watermark_band_is_not_a_figure(self):
         self.assertEqual(len(self.work["figures"]), 1)      # page 3 holds only the stamp
 
+    # ---- superscripts and subscripts, default style
+    def test_affiliation_markers_raised(self):
+        self.assertIn("A. Author, PhD¹,⁴; B. Coauthor, MD²", self.md)
+        self.assertNotIn("PhD1,4", self.md)
+
+    def test_citation_marker_raised(self):
+        self.assertIn("as described previously.¹²", self.md)
+
+    def test_chemical_subscript_lowered(self):
+        self.assertIn("CO₂ at 5 per cent", self.md)
+        self.assertNotIn("CO2 at", self.md)
+
+    def test_unit_exponent_raised(self):
+        self.assertIn("per m³ of chamber volume", self.md)
+
+    def test_script_style_recorded(self):
+        self.assertEqual(self.work["scripts"]["style"], "unicode")
+        self.assertEqual(self.work["scripts"]["lines_marked"], 3)
+
+
+class ScriptStyles(unittest.TestCase):
+    """The same pre-proof converted in each --sup-style."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="mdconvert-sup-")
+        cls.pdf = os.path.join(cls.tmp, "preproof.pdf")
+        make_fixture.build_preproof(cls.pdf)
+        cls.md = {}
+        for style in ("latex", "html", "plain"):
+            out = os.path.join(cls.tmp, style)
+            r, md, work = convert(cls.pdf, out, "--confirm-restricted", "--sup-style", style)
+            assert r.returncode == 0, r.stderr
+            cls.md[style] = md
+
+    def test_latex_style(self):
+        md = self.md["latex"]
+        self.assertIn("A. Author, PhD$^{1,4}$; B. Coauthor, MD$^{2}$", md)
+        self.assertIn("CO$_{2}$ at 5 per cent", md)
+        self.assertIn("previously.$^{12}$", md)
+
+    def test_html_style(self):
+        md = self.md["html"]
+        self.assertIn("A. Author, PhD<sup>1,4</sup>", md)
+        self.assertIn("CO<sub>2</sub> at 5 per cent", md)
+
+    def test_plain_style_is_the_old_behaviour(self):
+        md = self.md["plain"]
+        self.assertIn("A. Author, PhD1,4; B. Coauthor, MD2", md)
+        self.assertIn("CO2 at 5 per cent", md)
+        self.assertNotIn("¹", md)
+
 
 class ChineseArticle(unittest.TestCase):
     @classmethod
@@ -366,6 +423,60 @@ class TextHelpers(unittest.TestCase):
         self.assertEqual((x["labels"], x["scale"]), (["7", "14", "21", "28"], "linear"))
         self.assertEqual((y["values"], y["range"]), ([100.0, 75.0, 50.0, 25.0, 0.0], [0.0, 100.0]))
         self.assertIsNone(mx.axis_from(xs[:2], rect, "x"))        # two labels are not an axis
+
+    # ---- superscripts and subscripts
+    def test_script_text_unicode(self):
+        self.assertEqual(mx.script_text("1,4", "sup", "unicode"), "¹,⁴")
+        self.assertEqual(mx.script_text("2", "sub", "unicode"), "₂")
+        self.assertEqual(mx.script_text("-1", "sup", "unicode"), "⁻¹")
+        self.assertEqual(mx.script_text("a", "sup", "unicode"), "ᵃ")
+        self.assertEqual(mx.script_text("†", "sup", "unicode"), "†")
+
+    def test_script_text_falls_back_to_latex(self):
+        # q has no Unicode superscript, and no subscript exists for b
+        self.assertEqual(mx.script_text("q", "sup", "unicode"), "$^{q}$")
+        self.assertEqual(mx.script_text("b", "sub", "unicode"), "$_{b}$")
+
+    def test_script_text_keeps_surrounding_space_outside(self):
+        self.assertEqual(mx.script_text(" 10 ", "sup", "unicode"), " ¹⁰ ")
+
+    def test_script_text_leaves_already_raised_glyphs(self):
+        self.assertEqual(mx.script_text("²", "sup", "unicode"), "²")
+        self.assertEqual(mx.script_text("®", "sup", "unicode"), "®")
+        self.assertEqual(mx.script_text("®", "sup", "latex"), "®")
+
+    def test_script_text_trademark_run(self):
+        self.assertEqual(mx.script_text("TM", "sup", "unicode"), "™")
+        self.assertEqual(mx.script_text("TM", "sup", "latex"), "™")
+        self.assertEqual(mx.script_text("TM", "sup", "plain"), "TM")
+
+    def test_script_text_other_styles(self):
+        self.assertEqual(mx.script_text("1,4", "sup", "latex"), "$^{1,4}$")
+        self.assertEqual(mx.script_text("2", "sub", "html"), "<sub>2</sub>")
+        self.assertEqual(mx.script_text("1,4", "sup", "plain"), "1,4")
+
+    def test_script_line_uses_size_and_baseline(self):
+        def span(t, size, y, flags=4):
+            return {"text": t, "size": size, "flags": flags,
+                    "origin": (0.0, y), "bbox": [0, y - size, 10, y]}
+        raised = [span("PhD", 9.0, 124.0), span("1,4", 5.6, 121.0, 5)]
+        lowered = [span("CO", 9.0, 545.0), span("2", 5.6, 547.0)]
+        self.assertEqual(mx.script_line(raised, "unicode"), "PhD¹,⁴")
+        self.assertEqual(mx.script_line(lowered, "unicode"), "CO₂")
+
+    def test_apply_script_pairs_needs_context(self):
+        pairs = [("/m2", "/m²"), ("f.a", "f.ᵃ")]
+        self.assertEqual(mx.apply_script_pairs("BMI 30 kg/m2", pairs), "BMI 30 kg/m²")
+        self.assertEqual(mx.apply_script_pairs("Abs. Std. Diff.a", pairs), "Abs. Std. Diff.ᵃ")
+        self.assertEqual(mx.apply_script_pairs("2 of 5 sites", pairs), "2 of 5 sites")
+
+    def test_script_line_leaves_small_capitals_alone(self):
+        # smaller type on the same baseline is small capitals, not a superscript
+        spans = [{"text": "Results from ", "size": 9.0, "flags": 4,
+                  "origin": (0.0, 100.0), "bbox": [0, 91, 40, 100]},
+                 {"text": "PLOS", "size": 7.0, "flags": 4,
+                  "origin": (40.0, 100.0), "bbox": [40, 93, 60, 100]}]
+        self.assertEqual(mx.script_line(spans, "unicode"), "Results from PLOS")
 
     def test_statistics_patterns(self):
         self.assertTrue(mx.PVAL_RE.search("P < 0.001 versus baseline"))

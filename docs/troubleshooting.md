@@ -53,6 +53,23 @@ The opposite case: a real first page was taken for a cover sheet. It is listed u
 **The title is split across two headings**
 The PDF metadata carries no title, so the merge had nothing to match against. Join the two headings in the repair pass.
 
+## Superscripts and subscripts
+
+**Notion shows `$^{1,4}$` as literal text**
+Notion's Markdown import does not turn `$...$` into an inline equation. Convert with the default `--sup-style unicode`, which needs no renderer. Only a run with no Unicode form falls back to `$...$`; fix those few by hand, or select the run in Notion and press Ctrl+Shift+E to make it an inline equation.
+
+**Markers are still flat**
+Check `scripts.lines_marked` in the worklist. Zero means no run in the document was both smaller than its line and off its baseline: some typesetters raise a marker without shrinking it, and that case is not detected. Check the style too: `plain` is the flat setting.
+
+**A marker inside a table is flat while the same one in the prose is raised**
+Cell text is rebuilt without span information and repaired from the page's own substitutions. A unit that appears only in the table has nothing to be repaired from. Fix it in the repair pass.
+
+**A word lost a letter, or gained a raised one**
+A run was misread as a superscript. It must be under 13 characters, no more than 0.82 times the line's dominant size, and at least 0.1 of that size off the baseline. A font that sets abbreviations small and slightly high will trip it; run with `--sup-style plain` and mark the real ones in the repair pass.
+
+**Chemical subscripts are raised instead of lowered**
+The baseline comparison used the wrong dominant span, which happens when the lowered run is the longest one in its line. Rare; correct it in the repair pass.
+
 ## Reading order and text
 
 **Columns interleaved**

@@ -25,6 +25,7 @@ These rules are not negotiable. Check every one of them in step 8.
 - Reading order follows the columns, not the raster lines. Nothing from column 2 interleaves into column 1.
 - A paragraph split by a figure, a table, a footnote, a column break or a page break is rejoined into one paragraph; the interrupting block is then placed after that paragraph, never inside it.
 - Line-end hyphens are resolved: "classi-" + "fication" becomes "classification", while "high-" + "level" stays "high-level". Ligatures and TeX-style accents are repaired ("ﬁ" to "fi", "M¨uller" to "Müller").
+- Superscripts and subscripts are kept, not flattened: "ScD¹,⁴", "kg/m²", "CO₂", "previously.¹²", "Merative™". Unicode is the default because it renders everywhere, Notion included. `--sup-style latex` writes `$^{1,4}$` for Obsidian, Quarto or Pandoc, `html` writes `<sup>1,4</sup>` for GitHub, `plain` flattens. Whatever the style, do not retype a marker by hand in the repair pass.
 - Figure and table captions are italic and underlined, exactly: `_<u>Figure 1. Caption as printed.</u>_`
 - Tables are pipe tables, including a row-label column that sits outside the ruled grid. Never a screenshot of a table.
 - Figures, infographics and graphical abstracts are saved as PNG in `images/` and linked relatively. A short description sits directly under each one, with every label, unit and printed statistic taken from the PDF's own text rather than read off the picture.
@@ -52,6 +53,8 @@ python3 scripts/mdconvert_extract.py "<input.pdf>" "<workdir>/<slug>" --dpi 220
 ```
 
 Add `--password "<pw>"` only when the user has given one. The extractor writes `<slug>.md`, `images/`, `equations/` and `_worklist.json`, and prints a summary.
+
+Superscripts and subscripts come out as Unicode by default, which is what the user wants unless they say where the file is going. Add `--sup-style latex` for Obsidian, Quarto or Pandoc, `html` for GitHub, `plain` to flatten. If the user later says the markers show as literal `$^{1,4}$` in Notion or Word, they are on `latex`: rerun on `unicode`.
 
 | Exit | Meaning | What to do |
 | --- | --- | --- |
@@ -141,6 +144,7 @@ python3 -c "import pymupdf,sys; d=pymupdf.open(sys.argv[1]); [d[i-1].get_pixmap(
 - Caption count above image count: crop the missing figure yourself with `page.get_pixmap(clip=pymupdf.Rect(x0,y0,x1,y1), dpi=220, annots=False)`, save it into `images/`, and insert the link plus description at the right anchor.
 - Caption count above table count: transcribe the missed table from the page image as a pipe table.
 - Reference gaps: open the reference pages and insert the missing entries at their numbered positions.
+- A flat marker inside a table that the page's prose does not also carry ("kg/m2" where no sentence prints "kg/m²"): raise it by hand. Check `scripts.lines_marked` in the worklist first; zero on a document full of citation markers means the typesetter raised them without shrinking them, and none were detected.
 
 Never invent content. If the PDF does not show it, leave it out and record it in the log.
 
@@ -187,5 +191,6 @@ It downloads about 1 to 2 GB of models and takes several minutes on CPU. Reforma
 - The title comes from the PDF's own metadata when that title appears in the text: the matching blocks are merged, which also repairs a title set over two lines. The size rule is the fallback.
 - When every heading in a document is set in one size, as in an accepted manuscript, the standard sections sit at level 2 and the rest at level 3, since size gives no evidence.
 - A caption whose figure sits alone on the next page, as in a manuscript with the figures appended, is matched to that page. A candidate band carrying almost no ink is discarded, so a faint watermark is not cropped as a figure.
+- A raised or lowered run is recognised from its type size and its baseline, because PDF carries no markup for either: under 13 characters, at most 0.82 times the line's dominant size, and at least a tenth of that size off its baseline, which leaves small capitals alone. Table cell text is rebuilt by the table extractor without span information, so each page's own substitutions are replayed into its cells with three characters of preceding context.
 - A tick row is accepted only when at least three numeric labels run one way across the axis, and the scale is decided by measuring which of linear or log fits the tick positions. Numbers inside a diagram, such as layer widths, produce no axis.
 - The `warnings` list is the repair worklist. Caption counts are compared against extracted assets, and the reference sequence is checked for gaps, so systematic misses surface instead of passing silently.

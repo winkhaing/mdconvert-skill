@@ -26,7 +26,7 @@ from collections import Counter
 
 import pymupdf
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # ================================================================ patterns
 
@@ -116,6 +116,40 @@ OPEN_LICENCE_RE = re.compile(r"creative\s+commons|\bCC[ -]BY(?:[ -](?:NC|SA|ND))
 ARR_RE = re.compile(r"all rights reserved", re.I)
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"'<>]+", re.I)
 
+# Superscripts and subscripts. PDF carries them as a raised or lowered span, not as
+# markup, so a plain concatenation flattens "ScD(1,4)" onto the baseline. Unicode is the
+# default target because it needs no renderer: Notion, Word, Slack and a plain text editor
+# all show it, whereas inline "$...$" only renders where a maths extension is present.
+SUP_MAP = {"0": "\u2070", "1": "\u00b9", "2": "\u00b2", "3": "\u00b3", "4": "\u2074",
+           "5": "\u2075", "6": "\u2076", "7": "\u2077", "8": "\u2078", "9": "\u2079",
+           "+": "\u207a", "-": "\u207b", "\u2212": "\u207b", "\u2013": "\u207b",
+           "=": "\u207c", "(": "\u207d", ")": "\u207e",
+           "a": "\u1d43", "b": "\u1d47", "c": "\u1d9c", "d": "\u1d48", "e": "\u1d49",
+           "f": "\u1da0", "g": "\u1d4d", "h": "\u02b0", "i": "\u2071", "j": "\u02b2",
+           "k": "\u1d4f", "l": "\u02e1", "m": "\u1d50", "n": "\u207f", "o": "\u1d52",
+           "p": "\u1d56", "r": "\u02b3", "s": "\u02e2", "t": "\u1d57", "u": "\u1d58",
+           "v": "\u1d5b", "w": "\u02b7", "x": "\u02e3", "y": "\u02b8", "z": "\u1dbb",
+           "A": "\u1d2c", "B": "\u1d2e", "D": "\u1d30", "E": "\u1d31", "G": "\u1d33",
+           "H": "\u1d34", "I": "\u1d35", "J": "\u1d36", "K": "\u1d37", "L": "\u1d38",
+           "M": "\u1d39", "N": "\u1d3a", "O": "\u1d3c", "P": "\u1d3e", "R": "\u1d3f",
+           "T": "\u1d40", "U": "\u1d41", "V": "\u2c7d", "W": "\u1d42"}
+SUB_MAP = {"0": "\u2080", "1": "\u2081", "2": "\u2082", "3": "\u2083", "4": "\u2084",
+           "5": "\u2085", "6": "\u2086", "7": "\u2087", "8": "\u2088", "9": "\u2089",
+           "+": "\u208a", "-": "\u208b", "\u2212": "\u208b", "\u2013": "\u208b",
+           "=": "\u208c", "(": "\u208d", ")": "\u208e",
+           "a": "\u2090", "e": "\u2091", "h": "\u2095", "i": "\u1d62", "j": "\u2c7c",
+           "k": "\u2096", "l": "\u2097", "m": "\u2098", "n": "\u2099", "o": "\u2092",
+           "p": "\u209a", "r": "\u1d63", "s": "\u209b", "t": "\u209c", "u": "\u1d64",
+           "v": "\u1d65", "x": "\u2093"}
+# Separators and already-raised marks that stay as printed between mapped glyphs: Unicode
+# has no raised comma, and a dagger, an asterisk or a registered sign is raised by design.
+SCRIPT_PASS = set(",;.\u00b7*\u2020\u2021\u00a7\u00b6\u2019'"
+                  "\u00ae\u2122\u00a9\u2120\u00b0\u2032\u2033")
+# Whole runs the publisher sets raised but Unicode carries as one character.
+SCRIPT_WHOLE = {"TM": "\u2122", "SM": "\u2120", "(R)": "\u00ae", "(C)": "\u00a9"}
+SCRIPT_DONE = set(SUP_MAP.values()) | set(SUB_MAP.values())
+SCRIPT_STYLES = ("unicode", "latex", "html", "plain")
+
 LIGATURES = {"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi",
              "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"}
 # TeX-produced PDFs often emit a spacing accent before its letter: "M¨uller", "Doll´ar".
@@ -148,6 +182,94 @@ def is_cjk(ch):
 def cjk_ratio(s):
     chars = [c for c in s if not c.isspace()]
     return sum(is_cjk(c) for c in chars) / len(chars) if chars else 0.0
+
+
+def script_text(txt, kind, style):
+    """Re-encode one raised or lowered run of text in the requested style."""
+    core = txt.strip()
+    if not core or style == "plain":
+        return txt
+    lead = txt[:len(txt) - len(txt.lstrip())]
+    tail = txt[len(txt.rstrip()):]
+    if all(c in SCRIPT_DONE or c in SCRIPT_PASS for c in core):
+        return txt                      # already a raised glyph, in every style
+    if kind == "sup" and core in SCRIPT_WHOLE:
+        return lead + SCRIPT_WHOLE[core] + tail
+    if style == "html":
+        tag = "sup" if kind == "sup" else "sub"
+        return f"{lead}<{tag}>{core}</{tag}>{tail}"
+    if style == "unicode":
+        table = SUP_MAP if kind == "sup" else SUB_MAP
+        out = []
+        for ch in core:
+            if ch in table:
+                out.append(table[ch])
+            elif ch in SCRIPT_PASS:
+                out.append(ch)
+            else:
+                out = None
+                break
+        if out is not None:
+            return lead + "".join(out) + tail
+    mark = "^" if kind == "sup" else "_"
+    return f"{lead}${mark}{{{core}}}${tail}"
+
+
+def apply_script_pairs(s, pairs):
+    """Re-apply this page's script substitutions to text rebuilt without span information.
+
+    A table cell is assembled from characters by the table extractor, which keeps no record
+    of which run was raised, so the substitutions found in the page's own text are replayed
+    here. Each key carries up to three characters of preceding context, which keeps a bare
+    "2" from being raised wherever it occurs.
+    """
+    if not s or not pairs:
+        return s
+    for plain, enc in pairs:
+        if plain in s:
+            s = s.replace(plain, enc)
+    return s
+
+
+def script_line(spans, style, pairs=None):
+    """Join a line's spans, marking the raised and lowered ones.
+
+    PyMuPDF flags superscripts as bit 0 of span["flags"] but has no subscript flag, so
+    both are decided from the span's size against the line's dominant size and from its
+    baseline against the dominant baseline. Small capitals share the baseline and are
+    therefore left alone.
+    """
+    if style == "plain":
+        return "".join(s["text"] for s in spans)
+    real = [s for s in spans if s["text"].strip()]
+    if len(real) < 2:
+        return "".join(s["text"] for s in spans)
+    w = Counter()
+    for s in real:
+        w[round(s["size"], 1)] += len(s["text"].strip())
+    dom = w.most_common(1)[0][0]
+    base = [s for s in real if abs(round(s["size"], 1) - dom) < 0.05]
+    ys = sorted(s.get("origin", (0, s["bbox"][3]))[1] for s in base)
+    dy, tol = ys[len(ys) // 2], 0.1 * dom
+    out = []
+    for s in spans:
+        t = s["text"]
+        if not t.strip() or s["size"] > 0.82 * dom or len(t.strip()) > 12:
+            out.append(t)
+            continue
+        off = s.get("origin", (0, s["bbox"][3]))[1] - dy
+        if off < -tol or (s["flags"] & 1 and off < 0):
+            enc = script_text(t, "sup", style)
+        elif off > tol:
+            enc = script_text(t, "sub", style)
+        else:
+            enc = t
+        if pairs is not None and enc != t:
+            ctx = "".join(out).rstrip()[-3:]
+            if len(ctx) >= 2:
+                pairs[ctx + t.strip()] = ctx + enc.strip()
+        out.append(enc)
+    return "".join(out)
 
 
 def clean_text(s):
@@ -873,7 +995,8 @@ def document_status(doc, flags, pages=3):
             "licence": licence}
 
 
-def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False):
+def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
+            sup_style="unicode"):
     global _VOCAB
     _VOCAB = Counter()
 
@@ -897,6 +1020,10 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False):
     img_dir, eq_dir = os.path.join(outdir, "images"), os.path.join(outdir, "equations")
     flags = pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_LIGATURES & ~pymupdf.TEXT_PRESERVE_IMAGES
     warnings = []
+    if sup_style not in SCRIPT_STYLES:
+        warnings.append(f"unknown sup style {sup_style!r}; using unicode")
+        sup_style = "unicode"
+    script_lines = 0
 
     # ---- publication status. Nothing is written until a restricted copy is confirmed.
     try:
@@ -1010,10 +1137,11 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False):
         return (round(rect_like[0], 1), round(rect_like[1], 1), text.strip())
 
     blocks, removed_lines, wm_rects, dropped_maps = [], [], [], []
+    script_pairs = []            # per page: text rebuilt without spans is repaired from these
     for pno in range(n):
         page = doc[pno]
         ph = page.rect.height
-        pblocks, rl, rr = [], set(), []
+        pblocks, rl, rr, sp = [], set(), [], {}
         dmap = {}                                    # span -> why it was dropped
         for bi, b in enumerate(dicts[pno]["blocks"]):
             if b.get("type") != 0:
@@ -1059,7 +1187,9 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False):
                 if not any(s["text"].strip() for s in spans):
                     rl.add((bi, li))
                     continue
-                text = clean_text("".join(s["text"] for s in spans))
+                text = clean_text(script_line(spans, sup_style, sp))
+                if text != clean_text("".join(s["text"] for s in spans)):
+                    script_lines += 1
                 lrect = pymupdf.Rect()
                 for s in spans:
                     if s["text"].strip():
@@ -1096,6 +1226,7 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False):
                 "nchar": nchar, "page": pno + 1, "ph": ph, "bno": bi,
                 "caption": bool(CAPTION_RE.match(text))})
         blocks.append(pblocks)
+        script_pairs.append(sorted(sp.items(), key=lambda kv: -len(kv[0])))
         removed_lines.append(rl)
         wm_rects.append(rr)
         dropped_maps.append(dmap)
@@ -1184,6 +1315,9 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False):
                     rows = [[s] + list(row) for s, row in zip(stub[0], rows)]
                     r = r | stub[1]
                     stub_pages.append(pno + 1)
+                if script_pairs[pno]:
+                    rows = [[apply_script_pairs(c, script_pairs[pno]) if isinstance(c, str) else c
+                             for c in row] for row in rows]
                 md = md_table(rows)
                 if not md:
                     continue
@@ -1696,6 +1830,7 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False):
         "version": __version__, "scanned": False, "pdf": os.path.basename(pdf_path), "pages": n,
         "document": docinfo,
         "markdown": os.path.basename(md_path), "body_font_size": body_size,
+        "scripts": {"style": sup_style, "lines_marked": script_lines},
         "figures": figures, "equations": equations,
         "tables": n_tab, "figure_captions": cap_fig, "table_captions": cap_tab,
         "table_stub_columns_recovered": stub_pages,
@@ -1732,6 +1867,9 @@ if __name__ == "__main__":
     ap.add_argument("--password", default=None, help="password for an encrypted PDF")
     ap.add_argument("--confirm-restricted", action="store_true",
                     help="the user has agreed to convert this pre-proof or all-rights-reserved copy")
+    ap.add_argument("--sup-style", choices=SCRIPT_STYLES, default="unicode",
+                    help="how superscripts and subscripts are written: unicode (default, renders "
+                         "everywhere including Notion), latex ($^{1,4}$), html (<sup>), plain (flat)")
     ap.add_argument("--version", action="version", version=f"mdconvert {__version__}")
     a = ap.parse_args()
-    sys.exit(extract(a.pdf, a.outdir, a.dpi, a.password, a.confirm_restricted))
+    sys.exit(extract(a.pdf, a.outdir, a.dpi, a.password, a.confirm_restricted, a.sup_style))

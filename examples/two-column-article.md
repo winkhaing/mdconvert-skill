@@ -32,7 +32,7 @@ Vertical transmission is difficult to demonstrate in the field because progeny c
 
 _<u>Table 1. Positive tissues by tissue type.</u>_
 
-|  | Tested | Positive |
+|  | Tested | Positiveᵃ |
 | --- | --- | --- |
 | Body | 25 | 18 |
 | Legs & Wings | 25 | 12 |

@@ -86,6 +86,17 @@ Inline mathematics inside a sentence is left as extracted text, which means Unic
 
 *Workaround:* a formula that cannot be read confidently is kept as a PNG and linked. Check every converted formula that will be reused in a manuscript.
 
+## Superscripts and subscripts
+
+Kept since 0.5.0, decided from type size and baseline offset rather than from markup, because PDF carries no markup. Four consequences.
+
+- *A run set in smaller type on the same baseline is not raised.* Small capitals, a smaller font for an abbreviation, and a cell set two points down are all left alone, which is the intended trade: a false positive corrupts a word, a false negative only loses a baseline shift.
+- *Unicode has gaps.* There is no raised `q`, no lowered `b`, `c`, `d`, `f`, `g`, `w`, `y` or `z`, and no raised comma. A run with no Unicode form falls back to `$^{...}$`, which needs a KaTeX-capable renderer; separators stay on the baseline, so a marker prints `¹,⁴`.
+- *Table cells are repaired, not read.* The table extractor assembles a cell from characters and keeps no span information, so the substitutions found in the page's own text are replayed into its cells with three characters of preceding context. A unit or marker that appears only inside a table, never in the prose of that page, stays flat.
+- *A run longer than 12 characters is ignored.* A whole line set small and slightly off the baseline is a layout quirk, not a superscript.
+
+*Workaround:* `--sup-style plain` restores the pre-0.5.0 flat output; `--sup-style latex` or `html` suits a renderer that prefers markup. `scripts.lines_marked` in the worklist counts the lines that changed.
+
 ## Hyphenation
 
 A line-end hyphen is resolved from the document's own vocabulary first, then from a short list of compound elements. When a word appears only once, broken across a line, and its first half is on the compound list, the hyphen is kept even if the author meant a single word ("non-" + "structural" stays "non-structural" unless "nonstructural" occurs elsewhere in the text).

@@ -44,6 +44,7 @@ Both passes need a vision model, so the command line alone stops at the placehol
 | bar chart drawn as vector strokes | `images/fig-p01-01.png`, cropped without its caption |
 | numeric tick rows on both axes | read from the PDF: x at 7, 14, 21, 28 and y at 0 to 100, both reported linear |
 | "Positive tissues (%)" printed rotated beside the y axis | read as the y axis title, not removed as a watermark |
+| A raised "a" after the "Positive" header cell | kept as Positiveᵃ, replayed into the cell from the page's own text |
 | "Days post exposure" under the tick row | read as the x axis title |
 | "p = 0.003, n = 25" printed on the plot | in `printed_stats`, and quoted in the description as printed |
 | the axis numbers and titles themselves | absent from the body text, not stray one-line paragraphs |
