@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.6.0] - 2026-09-27
+
+Three faults found in an accepted manuscript prepared in a word processor, where a whole
+section arrives as one text block. All three are general, not specific to that publisher.
+
+### Fixed
+
+- **A heading run into the body block is now split out.** "References" arrived as the
+  ninth or fortieth line of the back-matter block, so it never became a heading, the
+  reference section was never found, and the entire bibliography was emitted as one
+  run-on paragraph. A block is now cut at any interior line that is a heading on its own
+  terms: short, no terminal punctuation, and in the section vocabulary. On the AJKD
+  manuscript this recovers the reference list in full, 1 to 29 with no gaps.
+- **Paragraphs cut by the layout are rejoined even when the continuation starts with a
+  capital.** The rule required the next block to begin lowercase, so "... outcomes
+  reported in" and "RCTs, comparative cohort studies ..." stayed two fragments. The
+  decisive evidence is on the left: a prose block ending with no terminal punctuation was
+  cut by the layout, not by the author. An uppercase start is now accepted, and only a
+  block that plainly opens something new (a section word, a numbered heading, a reference
+  entry, a caption, a list item) is refused. Mid-sentence paragraph endings on the AJKD
+  manuscript fell from 28 to 4, and the 4 that remain are correct: an email address, two
+  reference URLs and a figure placeholder.
+- **The reference list no longer swallows the back matter.** Collection stopped only at a
+  post-reference heading, so table footnotes after the bibliography were absorbed into the
+  last entry, which reached 2,010 characters. It now stops at the first table or figure,
+  and at the first block that has stopped looking like an entry: no number, no DOI, no
+  year and volume, no URL. The longest entry is now 361 characters.
+
+### Added
+
+- `refs_by_indent`: a bibliography whose numbering cannot be read is split on its hanging
+  indent instead, which is the boundary a reader uses and is far more reliable than
+  splitting on block order. Used only when the numbering fails, and reported in the log.
+- Blocks now carry `line_x`, the left edge of each line, kept correct when two blocks are
+  joined.
+
+### Changed
+
+- Tests 78 to 87. The pre-proof fixture gains a back-matter page: the heading run into the
+  block, a hanging-indent reference list, and a paragraph split with the continuation
+  starting on an acronym.
+
 ## [0.5.1] - 2026-09-27
 
 ### Fixed

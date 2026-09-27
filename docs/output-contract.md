@@ -83,6 +83,7 @@ Everything removed under this section is listed in the conversion log.
   5. otherwise kept only if the first part is a common compound element (high, low, well, non, self, ...), and joined in every other case ("dependen-" + "cies")
 - Chinese lines join without a space between characters.
 - A paragraph interrupted by a figure, a table, an equation, a caption, a footnote, a column break or a page break is rejoined when the first part ends mid-sentence and the continuation starts lowercase (or, in Chinese, with a character after an unfinished sentence). The interrupting block is then emitted after the completed paragraph.
+- A continuation is accepted whatever its first letter. A block ending with no terminal punctuation was cut by the layout, so the next block continues it unless that block plainly opens something new: a section word, a numbered heading, a reference entry, a caption or a list item.
 - No paragraph may end mid-sentence where the source does not.
 
 ## Captions
@@ -142,6 +143,9 @@ $$
 ## References
 
 - Heading `## References`, or the source heading when it is not English (`## 參考文獻`)
+- A heading the PDF ran into the body block is split back out before any of this, so a manuscript that emits a whole section as one block still yields a reference section
+- The list ends at the first table or figure, or at the first block that has stopped looking like an entry: no number, no DOI, no year and volume, no URL. The back matter that follows is never absorbed into the last entry
+- When the numbering cannot be read, entries are split on the hanging indent and numbered in order, and the log says so
 - The list sits where the reference section stands in the document, so an appendix that follows the references still follows them
 - One entry per line, `n. text`; a hyphen split across the lines or blocks of an entry is repaired
 - `n` is the PDF's own number. Numbers are accepted only in ascending order, and only within three of the previous accepted number, so a year, a volume or a page range is never promoted to a reference number.

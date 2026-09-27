@@ -112,6 +112,14 @@ A PDF can embed a font with no usable map from glyph to character. Two cases are
 
 A line-end hyphen is resolved from the document's own vocabulary first, then from a short list of compound elements. When a word appears only once, broken across a line, and its first half is on the compound list, the hyphen is kept even if the author meant a single word ("non-" + "structural" stays "non-structural" unless "nonstructural" occurs elsewhere in the text).
 
+## Manuscripts written in a word processor
+
+An accepted manuscript or pre-proof is usually a Word file exported to PDF, and it emits whole sections as single blocks rather than a block per paragraph. Three consequences, all handled since 0.6.0 but all heuristic.
+
+- *Headings are interior lines.* They are split back out when they are short, unpunctuated and in the section vocabulary. A heading phrased outside that vocabulary stays buried, and its section is not found.
+- *Paragraph boundaries are invented by the layout.* The rejoin rule reads a missing full stop as a cut. A source that genuinely ends a paragraph without punctuation, such as a list rendered as prose, will be joined to what follows.
+- *The reference list often has no heading of its own and no clean end.* It is bounded by entry shape, so a bibliography whose entries carry no number, DOI, year and volume, or URL ends early.
+
 ## Reference styles
 
 Numbered styles (`[1]`, `1.`) are handled well. Author-year bibliographies with no numbers fall back to splitting on block boundaries, which merges two short entries when the PDF puts them in one block, and splits one entry when the PDF breaks it across a column.

@@ -233,6 +233,16 @@ PREPROOF_TITLE = ("Vector competence of Aedes aegypti after prolonged extrinsic 
 PREPROOF_DOI = "10.1000/j.jsvb.2026.01.001"
 
 
+REFS_HANG = [
+    ("1. Meegan JM, Bailey CL. Rift Valley fever. In: Monath TP, editor. The arboviruses.",
+     ["Boca Raton: CRC Press; 1989. p. 51-76."]),
+    ("2. Turell MJ, Linthicum KJ, Beaman JR. Transmission of Rift Valley fever virus by",
+     ["adult mosquitoes after ingestion of virus as larvae. Am J Trop Med Hyg.",
+      "1990;43(6):677-680."]),
+    ("3. Lumley S, Horton DL, Hernandez-Triana LLM. Rift Valley fever virus: strategies",
+     ["for maintenance, survival and vertical transmission. J Gen Virol."]),
+]
+
 def build_preproof(path):
     """An Elsevier-style journal pre-proof: publisher cover sheet, then the manuscript.
 
@@ -309,6 +319,42 @@ def build_preproof(path):
             p4.draw_line((PAGE.width / 2, y + 46), (PAGE.width / 2, y + 110),
                          color=(0.1, 0.1, 0.1), width=0.8)
     stamp(p4)
+
+    # ------------------------------------------- page 5: back matter and the references
+    # The whole of the back matter is one block, with "References" set as an interior
+    # line, exactly as a word processor emits it. Two prose blocks are also split with
+    # the continuation starting on an acronym, which a line-end rule must still rejoin.
+    p5 = doc.new_page(width=PAGE.width, height=PAGE.height)
+    lines(p5, M, 70, [
+        "Article Information",
+        "Authors' Contributions: research idea and study design: A.A., B.C.; data",
+        "acquisition: A.A.; statistical analysis: B.C. Each author contributed important",
+        "intellectual content during manuscript drafting.",
+        "Support: This work received no specific grant from any funding agency.",
+        "Financial Disclosure: The authors declare that they have no relevant financial",
+        "interests.",
+        "Peer Review: Received 1 January 2026. Accepted in revised form 1 March 2026.",
+    ], size=9, font="tiro")
+    # the heading, set in the manuscript's heading face but still inside the block above
+    p5.insert_text((M, 70 + 8 * LH), "References", fontsize=11, fontname="hebo")
+
+    y = 70 + 9 * LH + 16                       # the list, with a hanging indent
+    for first, rest in REFS_HANG:
+        p5.insert_text((M, y), first, fontsize=9, fontname="tiro")
+        y += LH
+        for cont in rest:
+            p5.insert_text((M + 14, y), cont, fontsize=9, fontname="tiro")
+            y += LH
+        y += 3
+
+    # a paragraph the layout cut in two, continuing on an acronym
+    p5.insert_textbox(pymupdf.Rect(M, y + 20, PAGE.width - M, y + 44),
+                      "Drug safety information has traditionally relied on outcomes reported in",
+                      fontsize=9, fontname="tiro")
+    p5.insert_textbox(pymupdf.Rect(M, y + 60, PAGE.width - M, y + 84),
+                      "RCTs, cohort studies and pharmacovigilance systems such as Sentinel.",
+                      fontsize=9, fontname="tiro")
+    stamp(p5)
 
     doc.set_metadata({"title": PREPROOF_TITLE,
                       "author": "A. Author",

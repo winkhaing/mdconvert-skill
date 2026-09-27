@@ -90,6 +90,9 @@ The gutter was not detected, usually because a figure, a table or a wide equatio
 **A single-column page split into two**
 `gutter_min` is too small for a layout with wide internal spacing, such as a definition list or a table of contents. Raise it.
 
+**Paragraphs still end mid-sentence**
+Count them with `grep -c "[a-z,]$" file.md`. A handful is normal: an email address, a URL closing a reference. Dozens means the source block did end with punctuation the rule treats as terminal, or the next block was taken for a new section. Check `open_ended` and `continues` against the two blocks involved.
+
 **Paragraphs broken into fragments**
 The PDF emits one block per line and the lines end with full stops, which happens with some typesetting engines. The rejoin pass repairs continuations that end mid-sentence. Check whether the fragments are separate blocks in `page.get_text("dict")`; if so, the file needs a pre-merge step and is worth an issue with the DOI.
 
@@ -152,6 +155,12 @@ Expected for tables set with whitespace alone. The caption count warning flags i
 
 **Far fewer references than the PDF has**
 The number sequence broke early. Sequential matching accepts a number only in ascending order and within three of the previous one. If an entry's first line was lost, the sequence stalls. Check `reference_range` in `_worklist.json` against the last number in the PDF.
+
+**No reference section at all, and the bibliography is sitting inside a paragraph**
+The heading was run into the body block and, before 0.6.0, was never split out. If it still happens, the heading line is longer than 40 characters, carries terminal punctuation, or is not in the section vocabulary. Add its wording to `SECTION_WORDS` or split the block in the repair pass.
+
+**The last reference entry has swallowed the table footnotes**
+Fixed in 0.6.0: the list stops at the first table or figure, and at the first block with no number, DOI, year and volume, or URL. If a genuine entry is being cut off instead, it lacks all of those marks; widen `BIB_HINT_RE`.
 
 **Reference entries merged into one long line**
 The bibliography is unnumbered and the fallback split on block boundaries. Check the log for `numbered by block order`.

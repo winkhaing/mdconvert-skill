@@ -245,6 +245,34 @@ class PreProofArticle(unittest.TestCase):
     def test_watermark_band_is_not_a_figure(self):
         self.assertEqual(len(self.work["figures"]), 1)      # page 3 holds only the stamp
 
+    # ---- back matter and references, the pre-proof failure modes
+    def test_heading_run_into_the_block_is_split_out(self):
+        # "References" is the ninth line of the back-matter block, not a block of its own
+        self.assertIn("\n## References\n", self.md)
+        self.assertNotRegex(self.md, r"(?m)^.{40,}\bReferences\s*$")
+
+    def test_references_recovered_from_an_unheaded_list(self):
+        self.assertEqual(self.work["references"], 3)
+        self.assertEqual(self.work["reference_range"], [1, 3])
+        for n in (1, 2, 3):
+            self.assertRegex(self.md, r"(?m)^%d\. [A-Z]" % n)
+
+    def test_reference_entries_are_whole(self):
+        entries = re.findall(r"(?m)^\d\. (.+)$", self.md)
+        self.assertEqual(len(entries), 3)
+        self.assertIn("Boca Raton: CRC Press; 1989. p. 51-76.", entries[0])
+        self.assertIn("Am J Trop Med Hyg. 1990;43(6):677-680.", entries[1])
+
+    def test_reference_list_does_not_swallow_what_follows(self):
+        entries = re.findall(r"(?m)^\d\. (.+)$", self.md)
+        self.assertNotIn("Drug safety information", entries[-1])
+        self.assertIn("Drug safety information", self.md)
+
+    def test_paragraph_split_by_the_layout_is_rejoined(self):
+        # the continuation starts on an acronym, which used to block the join
+        self.assertIn("outcomes reported in RCTs, cohort studies and pharmacovigilance "
+                      "systems such as Sentinel.", self.md)
+
     # ---- superscripts and subscripts, default style
     def test_affiliation_markers_raised(self):
         self.assertIn("A. Author, PhD¹,⁴; B. Coauthor, MD²", self.md)
@@ -493,6 +521,53 @@ class TextHelpers(unittest.TestCase):
         lowered = [span("CO", 9.0, 545.0), span("2", 5.6, 547.0)]
         self.assertEqual(mx.script_line(raised, "unicode"), "PhD¹,⁴")
         self.assertEqual(mx.script_line(lowered, "unicode"), "CO₂")
+
+    def test_split_at_headings(self):
+        def ln(t):
+            return (t, mx.pymupdf.Rect(0, 0, 10, 10), [])
+        kept = [ln("Peer Review: received 1 January."), ln(" "), ln("References "),
+                ln("1. Meegan JM. Rift Valley fever.")]
+        segs = mx.split_at_headings(kept)
+        self.assertEqual([[t for t, _, _ in s] for s in segs],
+                         [["Peer Review: received 1 January.", " "], ["References "],
+                          ["1. Meegan JM. Rift Valley fever."]])
+        # a heading on the first line is already a block of its own
+        self.assertEqual(len(mx.split_at_headings([ln("References"), ln("1. A B."),
+                                                   ln("2. C D.")])), 1)
+        # an ordinary paragraph is never cut
+        body = [ln("The results were consistent across every group we examined, and the"),
+                ln("effect persisted after adjustment for the baseline covariates listed"),
+                ln("in the methods section above.")]
+        self.assertEqual(len(mx.split_at_headings(body)), 1)
+
+    def test_refs_by_indent(self):
+        unit = {"lines": ["1. Meegan JM, Bailey CL. Rift Valley fever. In: Monath TP, editor.",
+                          "Boca Raton: CRC Press; 1989. p. 51-76.",
+                          "2. Turell MJ, Linthicum KJ. Transmission of Rift Valley fever virus",
+                          "by adult mosquitoes. Am J Trop Med Hyg. 1990;43(6):677-680.",
+                          "3. Lumley S, Horton DL. Rift Valley fever virus: strategies for",
+                          "maintenance and vertical transmission. J Gen Virol. 2017;98:875."],
+                "line_x": [72.0, 86.0, 72.0, 86.0, 72.0, 86.0]}
+        out = mx.refs_by_indent([unit])
+        self.assertEqual(len(out), 3)
+        self.assertTrue(out[0].startswith("Meegan JM"))
+        self.assertIn("Boca Raton", out[0])
+        # a block set flush left throughout carries no hanging indent to split on
+        flat = {"lines": unit["lines"], "line_x": [72.0] * 6}
+        self.assertEqual(mx.refs_by_indent([flat]), [])
+
+    def test_bibliography_hints(self):
+        self.assertTrue(mx.BIB_HINT_RE.search("doi:10.1093/aje/kwab052"))
+        self.assertTrue(mx.BIB_HINT_RE.search("Kidney Int. 2022; 102(5): 990"))
+        self.assertTrue(mx.BIB_HINT_RE.search("Wheeler DC, Stefansson BV, et al. Effects"))
+        self.assertTrue(mx.BIB_HINT_RE.search("Accessed November 7, 2024"))
+        self.assertIsNone(mx.BIB_HINT_RE.search("Drug safety information has relied on"))
+
+    def test_continuation_accepts_an_uppercase_start(self):
+        # exercised through the fixture; these are the shapes the rule must refuse
+        self.assertTrue(mx.SECTION_WORDS.match("Discussion"))
+        self.assertTrue(mx.REF_ENTRY_RE.match("21. Agency for Healthcare Research"))
+        self.assertTrue(mx.CAPTION_RE.match("Table 2. Baseline characteristics"))
 
     def test_math_line_is_left_alone(self):
         def span(t, font="Times", size=10.0):

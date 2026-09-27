@@ -26,7 +26,7 @@ from collections import Counter
 
 import pymupdf
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 # ================================================================ patterns
 
@@ -90,6 +90,10 @@ NOISE_RE = re.compile(
     r"^\s*received\s*:.*accepted\s*:|^\s*copyright\s*[:©]|^\s*©\s*\d{4}|^\s*\(c\)\s*\d{4}|"
     r"^\s*arxiv:\s*\d{4}\.\d{4,5}v\d+\s*\[", re.I)
 REF_ENTRY_RE = re.compile(r"^\s*\[?\d{1,3}[\].)]?\s+\S")
+# Marks of a bibliography entry, used to tell where the reference list stops and the
+# back matter begins when no heading separates them.
+BIB_HINT_RE = re.compile(r"(?i)\bdois?\b|doi\.org|\bet al\b|\b(?:19|20)\d{2}\s*[;:]|"
+                         r"\b\d{1,4}\(\d{1,3}\)\s*:|\bpp?\.\s*\d|\baccessed\b|https?://")
 
 # Optional content groups (layers) with these names are treated as watermarks.
 WM_LAYER_RE = re.compile(r"water\s*mark|draft|confidential|do\s*not\s*copy|sample|stamp|background", re.I)
@@ -251,6 +255,39 @@ def apply_script_pairs(s, pairs):
         if plain in s:
             s = s.replace(plain, enc)
     return s
+
+
+def split_at_headings(kept, min_lines=3):
+    """Cut a block where a section heading was set as one of its own lines.
+
+    A manuscript prepared in a word processor often emits a whole section as a single
+    block, so "References" or "Acknowledgements" arrives as an interior line rather than
+    a block of its own and the section is never found. Only a line that is a heading on
+    its own terms is a cut point: short, no terminal punctuation, and matching the
+    section vocabulary. kept is the list of (text, rect, spans) tuples for the block.
+    """
+    if len(kept) < min_lines:
+        return [kept]
+    cuts = []
+    for i, (t, _, _) in enumerate(kept):
+        if i == 0:
+            continue
+        w = t.strip().rstrip(":：").strip()
+        if not 2 <= len(w) <= 40:
+            continue
+        if REF_HEAD_RE.match(w) or SECTION_WORDS.match(w):
+            cuts.append(i)
+    if not cuts:
+        return [kept]
+    segs, start = [], 0
+    for i in cuts:
+        if i > start:
+            segs.append(kept[start:i])
+        segs.append(kept[i:i + 1])              # the heading line, on its own
+        start = i + 1
+    if start < len(kept):
+        segs.append(kept[start:])
+    return [x for x in segs if x]
 
 
 def repair_symbol(text, font):
@@ -730,6 +767,39 @@ def rows_from_words(table, words):
             cells.append(" ".join(w[4] for w in ws))
         rows.append(cells)
     return rows
+
+
+def refs_by_indent(units, tol=2.0, min_lines=6):
+    """Split a bibliography on its hanging indent, for a list whose numbering is unusable.
+
+    A reference list set in a word processor puts the first line of each entry at the
+    outer margin and indents every continuation line under it. When the numbering cannot
+    be trusted, that indent is the cleaner boundary, and it is the one a reader uses.
+    Returns the entry texts, or an empty list when no hanging indent is present.
+    """
+    lines = []
+    for u in units:
+        xs = u.get("line_x") or []
+        for k, t in enumerate(u.get("lines") or []):
+            if t.strip():
+                lines.append((t, xs[k] if k < len(xs) else None))
+    xs = [x for _, x in lines if x is not None]
+    if len(xs) < min_lines:
+        return []
+    outer = min(xs)
+    indented = [x for x in xs if x > outer + tol]
+    if len(indented) < 0.3 * len(xs):          # no hanging indent worth the name
+        return []
+    entries, cur = [], []
+    for t, x in lines:
+        if cur and x is not None and x <= outer + tol:
+            entries.append(join_lines(cur))
+            cur = []
+        cur.append(t)
+    if cur:
+        entries.append(join_lines(cur))
+    out = [re.sub(r"^\s*\[?(\d{1,3})\]?[.)]?\s+", "", e).strip() for e in entries]
+    return [e for e in out if len(e) > 25]
 
 
 def recover_stub(table, rect, words, prose_blocks):
@@ -1280,34 +1350,40 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
                 kept.append((text, lrect, spans))
             if not kept:
                 continue
-            sizes, flg, fonts, nchar = Counter(), Counter(), Counter(), 0
-            for _, _, spans in kept:
-                for s in spans:
-                    k = len(s["text"].strip())
-                    if not k:
-                        continue
-                    sizes[round(s["size"], 1)] += k
-                    flg[s["flags"]] += k
-                    fonts[s["font"]] += k
-                    nchar += k
-            if not nchar:
-                continue
-            text = join_lines([t for t, _, _ in kept])
-            if not text:
-                continue
-            rect = pymupdf.Rect()
-            for _, lr_, _ in kept:
-                rect |= lr_
-            font = fonts.most_common(1)[0][0]
-            pblocks.append({
-                "rect": rect, "text": text, "lines": [t for t, _, _ in kept],
-                "size": sizes.most_common(1)[0][0], "font": font,
-                "bold": sum(v for f, v in flg.items() if f & 16) / nchar,
-                "ital": sum(v for f, v in flg.items() if f & 2) / nchar,
-                "mathfrac": sum(v for f, v in fonts.items()
-                                if MATH_FONT_RE.search(f) or "Ital" in f or "Obli" in f) / nchar,
-                "nchar": nchar, "page": pno + 1, "ph": ph, "bno": bi,
-                "caption": bool(CAPTION_RE.match(text))})
+            # A heading run into the body block. Word-produced manuscripts often emit the
+            # whole of a section, heading included, as one block, so "References" arrives
+            # as the fortieth line of a paragraph and never becomes a heading of its own.
+            # The block is cut at such a line so the section can be found downstream.
+            for seg in split_at_headings(kept):
+                sizes, flg, fonts, nchar = Counter(), Counter(), Counter(), 0
+                for _, _, spans in seg:
+                    for s in spans:
+                        k = len(s["text"].strip())
+                        if not k:
+                            continue
+                        sizes[round(s["size"], 1)] += k
+                        flg[s["flags"]] += k
+                        fonts[s["font"]] += k
+                        nchar += k
+                if not nchar:
+                    continue
+                text = join_lines([t for t, _, _ in seg])
+                if not text:
+                    continue
+                rect = pymupdf.Rect()
+                for _, lr_, _ in seg:
+                    rect |= lr_
+                font = fonts.most_common(1)[0][0]
+                pblocks.append({
+                    "rect": rect, "text": text, "lines": [t for t, _, _ in seg],
+                    "line_x": [round(lr_.x0, 1) for _, lr_, _ in seg],
+                    "size": sizes.most_common(1)[0][0], "font": font,
+                    "bold": sum(v for f, v in flg.items() if f & 16) / nchar,
+                    "ital": sum(v for f, v in flg.items() if f & 2) / nchar,
+                    "mathfrac": sum(v for f, v in fonts.items()
+                                    if MATH_FONT_RE.search(f) or "Ital" in f or "Obli" in f) / nchar,
+                    "nchar": nchar, "page": pno + 1, "ph": ph, "bno": bi,
+                    "caption": bool(CAPTION_RE.match(text))})
         blocks.append(pblocks)
         script_pairs.append(sorted(sp.items(), key=lambda kv: -len(kv[0])))
         removed_lines.append(rl)
@@ -1778,8 +1854,25 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
         return not re.search(r"[.!?:;)\]”\"'" + CJK_TERMINAL + r"]$", t)
 
     def continues(t):
-        return (bool(re.match(r"^[a-z(\[]", t)) or bool(re.match(r"^[0-9]+[a-z%]", t))
-                or (bool(t) and is_cjk(t[0]) and t[0] not in "「『（【《"))
+        """Does this block continue a sentence the previous one left open?
+
+        The decisive evidence is on the left: a prose block that ends with no terminal
+        punctuation was cut by the layout, not by the author. So an uppercase start is
+        accepted too, since a continuation often begins with an acronym, a trial name or
+        a proper noun ("... reported in" / "RCTs, comparative cohort studies"). Only a
+        block that plainly opens something new is refused.
+        """
+        if not t:
+            return False
+        if re.match(r"^[a-z(\[]", t) or re.match(r"^[0-9]", t):
+            return True
+        if is_cjk(t[0]) and t[0] not in "「『（【《":
+            return True
+        if SECTION_WORDS.match(t) or NUMBERED_HEAD_RE.match(t) or REF_ENTRY_RE.match(t):
+            return False                                   # a new section, or a reference
+        if CAPTION_RE.match(t) or BULLET_RE.match(t):
+            return False
+        return bool(re.match(r"[A-ZÀ-ž]", t))
 
     def movable(v):
         return v.get("kind") in ("figure", "table", "equation") or (
@@ -1800,6 +1893,8 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
                     units.pop(j)
                     u["text"] = join_lines([u["text"], v["text"]])
                     u["nchar"] += v["nchar"]
+                    u["lines"] = (u.get("lines") or []) + (v.get("lines") or [])
+                    u["line_x"] = (u.get("line_x") or []) + (v.get("line_x") or [])
                     continue                                   # the next break may follow
         i += 1
 
@@ -1815,7 +1910,14 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
         for u in units[ref_start + 1:]:
             if u.get("kind") == "heading" and POST_REF_HEAD_RE.match(u["text"]):
                 break
+            if u.get("kind") in ("table", "figure"):
+                break        # a bibliography is never interleaved with tables or figures,
+                             # so this is where the list ends and the back matter starts
             if u.get("kind") in ("text", "heading", "equation") and not u.get("caption"):
+                # nothing marks the end of an unheaded list except the entries stopping
+                # looking like entries: no number, no DOI, no year and volume, no URL
+                if tail and not (REF_ENTRY_RE.match(u["text"]) or BIB_HINT_RE.search(u["text"])):
+                    break
                 tail.append(u)
         blob = join_lines([u["text"] for u in tail])            # repairs hyphens across blocks
         pats = [re.compile(r"\[(\d{1,3})\]\s*"),
@@ -1841,6 +1943,11 @@ def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False,
             missing = [x for x in range(nums[0], nums[-1] + 1) if x not in nums]
             if missing:
                 warnings.append(f"reference numbers not found in text: {missing}")
+        elif refs_by_indent(tail):
+            for num, t in enumerate(refs_by_indent(tail), 1):
+                ref_entries.append((num, t))
+            warnings.append("references carried no usable numbering; "
+                            "split on the hanging indent and numbered in order")
         elif tail:
             num = 0
             for u in tail:
