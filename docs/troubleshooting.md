@@ -26,7 +26,7 @@ The PDF has a user password. Rerun with `--password "..."`. A PDF that only rest
 The file is not a PDF (often an HTML error page saved with a `.pdf` name by a download that failed), or it is truncated. Check with `file in.pdf` and download it again.
 
 **The skill does not appear in Claude**
-For a filesystem install the folder must be `~/.claude/skills/mdconvert/` with `SKILL.md` at its top level, and the client needs a restart. For an uploaded bundle, check that the zip contains `mdconvert/SKILL.md` and not `SKILL.md` at the archive root.
+For a filesystem install the folder must be `~/.claude/skills/mdconvert/` with `SKILL.md` at its top level, and the client needs a restart. For an uploaded bundle, check that the zip contains `mdconvert/SKILL.md` and not `SKILL.md` at the archive root. Uploads go through Customize, then Skills, in the web interface; they cannot be added from inside Claude Code. On Team and Enterprise plans an owner can turn skill creation off, which removes the upload option altogether.
 
 ## Watermarks
 

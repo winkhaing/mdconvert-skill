@@ -110,7 +110,11 @@ cd mdconvert-skill
 bash scripts/build_bundle.sh          # writes dist/mdconvert.zip
 ```
 
-Upload `dist/mdconvert.zip` in Settings, under Capabilities, then Skills.
+In claude.ai, go to Customize, then Skills, click the plus button, choose Create skill, then Upload a skill, and select `dist/mdconvert.zip`. The zip must hold the skill folder at its root, so `mdconvert/SKILL.md` and not `SKILL.md` on its own.
+
+The skill then syncs to Claude Code and to the desktop app automatically; `/skills` lists what has arrived. Skills cannot be uploaded from inside Claude Code, only from the web.
+
+Skills are available on Free, Pro, Max, Team and Enterprise plans. On Team and Enterprise an owner can turn off skill creation, in which case the upload option is missing and the skill has to be provisioned for the organisation instead.
 
 If the interface accepts only a single file, build the self-contained variant instead, which inlines the extractor into the skill file:
 
