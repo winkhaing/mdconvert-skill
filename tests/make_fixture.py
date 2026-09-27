@@ -211,6 +211,90 @@ def build(path):
     doc.close()
 
 
+
+PREPROOF_TITLE = ("Vector competence of Aedes aegypti after prolonged extrinsic "
+                  "incubation at field temperatures")
+PREPROOF_DOI = "10.1000/j.jsvb.2026.01.001"
+
+
+def build_preproof(path):
+    """An Elsevier-style journal pre-proof: publisher cover sheet, then the manuscript.
+
+    Exercises the permission gate, the cover-sheet drop, the metadata title split over two
+    lines, headings that are all one size, and a figure printed on its own page.
+    """
+    doc = pymupdf.open()
+
+    def stamp(page):                                   # diagonal pre-proof watermark
+        page.insert_text((150, 620), "Journal Pre-proof", fontsize=26, fontname="helv",
+                         color=(0.85, 0.85, 0.85),
+                         morph=(pymupdf.Point(150, 620), pymupdf.Matrix(-35)))
+
+    # ---------------------------------------------------------- page 1: cover sheet
+    p = doc.new_page(width=PAGE.width, height=PAGE.height)
+    p.insert_text((M, 70), "Journal Pre-proof", fontsize=15, fontname="hebo")
+    p.insert_textbox(pymupdf.Rect(M, 100, PAGE.width - M, 150), PREPROOF_TITLE,
+                     fontsize=13, fontname="helv")
+    p.insert_text((M, 175), "A. Author, PhD, B. Coauthor, MD", fontsize=9.5, fontname="helv")
+    lines(p, M, 210, ["PII:            S0000-0000(26)00118-2",
+                      f"DOI:            https://doi.org/{PREPROOF_DOI}",
+                      "Reference:      JSVB 58706",
+                      "To appear in:   Journal of Synthetic Vector Biology",
+                      "Received Date:  1 January 2026",
+                      "Accepted Date:  1 March 2026"], size=9, font="helv")
+    p.insert_textbox(pymupdf.Rect(M, 320, PAGE.width - M, 380),
+                     "Please cite this article as: Author A, Coauthor B, " + PREPROOF_TITLE +
+                     f", Journal of Synthetic Vector Biology (2026), doi: https://doi.org/{PREPROOF_DOI}.",
+                     fontsize=8.5, fontname="helv")
+    p.insert_textbox(pymupdf.Rect(M, 400, PAGE.width - M, 470),
+                     "This is a PDF of an article that has undergone enhancements after acceptance, "
+                     "such as the addition of a cover page, but is not yet the definitive version of record.",
+                     fontsize=8.5, fontname="helv")
+    stamp(p)
+
+    # ---------------------------------------------------------- page 2: the manuscript
+    p2 = doc.new_page(width=PAGE.width, height=PAGE.height)
+    p2.insert_text((M, 70), "Vector competence of Aedes aegypti after prolonged extrinsic",
+                   fontsize=11, fontname="hebo")           # the title, set over two blocks
+    p2.insert_text((M, 96), "incubation at field temperatures", fontsize=11, fontname="hebo")
+    p2.insert_text((M, 124), "A. Author, PhD1; B. Coauthor, MD2", fontsize=9, fontname="tiro")
+    p2.insert_text((M, 160), "Abstract", fontsize=11, fontname="hebo")
+    p2.insert_textbox(pymupdf.Rect(M, 172, PAGE.width - M, 250), BODY1, fontsize=9, fontname="tiro")
+    p2.insert_text((M, 280), "Introduction", fontsize=11, fontname="hebo")
+    p2.insert_textbox(pymupdf.Rect(M, 292, PAGE.width - M, 370), BODY2, fontsize=9, fontname="tiro")
+    p2.insert_text((M, 400), "Methods", fontsize=11, fontname="hebo")
+    p2.insert_text((M, 424), "Outcome definitions", fontsize=11, fontname="hebo")
+    p2.insert_textbox(pymupdf.Rect(M, 436, PAGE.width - M, 520), BODY4, fontsize=9, fontname="tiro")
+    stamp(p2)
+
+    # ---------------------------------------------------------- page 3: caption, figure overleaf
+    p3 = doc.new_page(width=PAGE.width, height=PAGE.height)
+    p3.insert_text((M, 70), "Results", fontsize=11, fontname="hebo")
+    p3.insert_textbox(pymupdf.Rect(M, 82, PAGE.width - M, 160), BODY1, fontsize=9, fontname="tiro")
+    p3.insert_textbox(pymupdf.Rect(M, 200, PAGE.width - M, 250),
+                      "Fig 1. Study flow. Numbers of mosquitoes at each stage of the experiment.",
+                      fontsize=9, fontname="tiro")
+    stamp(p3)
+
+    # ---------------------------------------------------------- page 4: the figure alone
+    p4 = doc.new_page(width=PAGE.width, height=PAGE.height)
+    boxes = [(120, "600 mosquitoes exposed"), (230, "540 survived to day 7"),
+             (340, "180 with disseminated infection")]
+    for y, label in boxes:
+        r = pymupdf.Rect(M + 40, y, PAGE.width - M - 40, y + 46)
+        p4.draw_rect(r, color=(0.1, 0.1, 0.1), width=0.8)
+        p4.insert_text((r.x0 + 8, y + 27), label, fontsize=9, fontname="helv")
+        if y < 340:
+            p4.draw_line((PAGE.width / 2, y + 46), (PAGE.width / 2, y + 110),
+                         color=(0.1, 0.1, 0.1), width=0.8)
+    stamp(p4)
+
+    doc.set_metadata({"title": PREPROOF_TITLE,
+                      "author": "A. Author",
+                      "subject": f"Journal of Synthetic Vector Biology, Journal Pre-proof. doi:{PREPROOF_DOI}"})
+    doc.save(path)
+
+
 def build_cjk(path):
     doc = pymupdf.open()
     p = doc.new_page(width=PAGE.width, height=PAGE.height)

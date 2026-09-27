@@ -13,6 +13,11 @@ Every conversion must satisfy these rules before it is delivered. They are asser
 | No heading that is a sentence | A candidate longer than 120 characters or 14 words (30 characters for Chinese), or containing `@` or a bracketed citation, or ending in a comma, is body text |
 | Run-together headings split | "Materials and methods Ethics statement" becomes `## Materials and methods` followed by `### Ethics statement` |
 
+## Before anything is written
+
+- A journal pre-proof, an accepted manuscript or an all-rights-reserved article stops at exit code 6 with a `document` block describing itself. The user decides whether to convert their copy; `--confirm-restricted` resumes. An open licence (CC-BY and similar) converts without asking.
+- The converted file is the user's copy of their own document. It is not for redistribution, and the conversion log records the status it was converted under.
+
 ## Removed from the body
 
 **Watermarks**, in two layers:

@@ -186,6 +186,61 @@ class TwoColumnArticle(unittest.TestCase):
         self.assertNotIn("Positive tissues (%)", wm["samples"])
 
 
+
+class PreProofArticle(unittest.TestCase):
+    """An Elsevier-style pre-proof: permission gate, cover sheet, title, figure page."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="mdconvert-pp-")
+        cls.pdf = os.path.join(cls.tmp, "preproof.pdf")
+        cls.out = os.path.join(cls.tmp, "out")
+        make_fixture.build_preproof(cls.pdf)
+        cls.gated = run([cls.pdf, cls.out])
+        r, cls.md, cls.work = convert(cls.pdf, cls.out, "--confirm-restricted")
+        assert r.returncode == 0, r.stderr
+
+    def test_permission_is_required_first(self):
+        self.assertEqual(self.gated.returncode, 6)
+        seen = json.loads(self.gated.stdout)
+        self.assertTrue(seen["restricted"])
+        self.assertEqual(seen["document"]["status"], "pre-proof")
+        self.assertIn("jsvb.2026.01.001", seen["document"]["doi"])
+
+    def test_nothing_is_written_before_permission(self):
+        # the confirmed run created the folder afterwards, so check the gate's own output
+        self.assertNotIn("markdown", self.gated.stdout)
+
+    def test_document_block_recorded(self):
+        d = self.work["document"]
+        self.assertEqual(d["status"], "pre-proof")
+        self.assertTrue(d["cover_sheet"])
+        self.assertTrue(d["restricted"])
+        self.assertIn("Vector competence", d["metadata_title"])
+
+    def test_cover_sheet_removed(self):
+        self.assertTrue(self.work["cover_sheet_removed"])
+        for stray in ("PII:", "Please cite this article as", "Journal Pre-proof",
+                      "not yet the definitive version of record"):
+            self.assertNotIn(stray, self.md, stray)
+
+    def test_title_rejoined_from_metadata(self):
+        h1 = re.findall(r"^# (.+)$", self.md, re.M)
+        self.assertEqual(h1, [make_fixture.PREPROOF_TITLE])
+
+    def test_heading_levels_when_every_heading_is_one_size(self):
+        self.assertIn("\n## Methods\n", self.md)
+        self.assertIn("\n### Outcome definitions\n", self.md)
+
+    def test_figure_printed_on_its_own_page(self):
+        self.assertEqual([f["page"] for f in self.work["figures"]], [4])
+        self.assertIn("Fig 1. Study flow", self.work["figures"][0]["caption"])
+        self.assertEqual(self.work["warnings"], [])
+
+    def test_watermark_band_is_not_a_figure(self):
+        self.assertEqual(len(self.work["figures"]), 1)      # page 3 holds only the stamp
+
+
 class ChineseArticle(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

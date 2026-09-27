@@ -13,6 +13,7 @@ Exit codes
     3  scanned or image-only PDF: no usable text layer
     4  encrypted PDF that needs a password (pass --password)
     5  the file cannot be opened as a PDF
+    6  pre-proof or all-rights-reserved copy: ask the user, then pass --confirm-restricted
 """
 import argparse
 import json
@@ -25,7 +26,7 @@ from collections import Counter
 
 import pymupdf
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 # ================================================================ patterns
 
@@ -104,6 +105,17 @@ SIG_RE = re.compile(r"^(?:\*{1,4}|n\.?s\.?|†|‡)$", re.I)
 FIG_LABEL_NUM_RE = re.compile(r"(?:fig(?:ure)?\.?|圖|图|図)\s*"
                               r"([0-9]{1,3}|[IVX]{1,5})", re.I)
 
+# Publication status. A pre-proof or accepted manuscript is the author's copy of a
+# paywalled article, so the skill asks the user before converting one in full.
+PREPROOF_RE = re.compile(r"journal\s+pre-?proofs?|accepted\s+manuscripts?|uncorrected\s+proof|"
+                         r"author\s+accepted\s+manuscript|this is a pdf of an article", re.I)
+COVER_RE = re.compile(r"\bPII\s*:|to appear in\s*:|please cite this article as", re.I)
+OPEN_LICENCE_RE = re.compile(r"creative\s+commons|\bCC[ -]BY(?:[ -](?:NC|SA|ND)){0,2}\b|"
+                             r"open[ -]access article|distributed under the terms of|"
+                             r"http://creativecommons\.org|https://creativecommons\.org", re.I)
+ARR_RE = re.compile(r"all rights reserved", re.I)
+DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"'<>]+", re.I)
+
 LIGATURES = {"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi",
              "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"}
 # TeX-produced PDFs often emit a spacing accent before its letter: "M¨uller", "Doll´ar".
@@ -166,6 +178,42 @@ def overlap_frac(a, b):
 def luminance(color_int):
     r, g, b = (color_int >> 16) & 255, (color_int >> 8) & 255, color_int & 255
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+
+
+def blank_band(page, rect, skip=(), ink_max=0.005):
+    """True when a region carries almost no ink of its own.
+
+    is_unicolor only catches a perfectly flat crop, so a band holding nothing but a
+    diagonal stamp would be cropped as a figure that shows only the stamp. Watermark
+    ink is painted out before the ink is measured, because it is not content.
+    """
+    if rect.is_empty or rect.width < 2 or rect.height < 2:
+        return True
+    pm = page.get_pixmap(clip=rect, dpi=36, annots=False)
+    if not pm.width or not pm.height:
+        return True
+    sx, sy = pm.width / max(rect.width, 1e-6), pm.height / max(rect.height, 1e-6)
+    for r in skip:
+        hit = pymupdf.Rect(r) & rect
+        if hit.is_empty:
+            continue
+        box = pymupdf.IRect(max(0, int((hit.x0 - rect.x0) * sx) - 1),
+                            max(0, int((hit.y0 - rect.y0) * sy) - 1),
+                            min(pm.width, int((hit.x1 - rect.x0) * sx) + 2),
+                            min(pm.height, int((hit.y1 - rect.y0) * sy) + 2))
+        try:
+            pm.set_rect(box, (255, 255, 255))
+        except Exception:
+            pass
+    if pm.is_unicolor:
+        return True
+    n = pm.width * pm.height
+    px, ink = pm.samples, 0
+    step = pm.n
+    for i in range(0, len(px), step * 4):                  # every fourth pixel is enough
+        if px[i] < 235 or px[i + 1] < 235 or px[i + 2] < 235:
+            ink += 1
+    return ink / max(1, n / 4) < ink_max
 
 
 def horizontal(line):
@@ -744,7 +792,88 @@ def figure_labels(pdict, words, rect, dropped, exclude, body_size, max_items=120
     return out, rotated_kept, used
 
 
-def extract(pdf_path, outdir, dpi=220, password=None):
+def _norm_title(s):
+    return re.sub(r"\s+", " ", re.sub(r"[^0-9a-z一-鿿]+", " ", s.lower())).strip()
+
+
+def title_units(units, meta_title, max_parts=4):
+    """Indices of the blocks that spell out the title the PDF's metadata declares.
+
+    Publishers set the title in the PDF metadata, and a title set over two lines arrives
+    as two blocks. Blocks are merged only while the running text is still a prefix of the
+    metadata title, so a neighbouring line is never absorbed. Returns None when the
+    metadata title is missing or does not appear in the text.
+    """
+    target = _norm_title(meta_title or "")
+    if len(target) < 15:
+        return None
+    for i, u in enumerate(units):
+        if u.get("kind") != "text" or u.get("caption") or not u.get("text"):
+            continue
+        acc, parts = _norm_title(u["text"]), [i]
+        if not acc or not target.startswith(acc):
+            continue
+        while acc != target and parts[-1] + 1 < len(units) and len(parts) < max_parts:
+            v = units[parts[-1] + 1]
+            if v.get("kind") != "text" or v.get("caption"):
+                break
+            trial = _norm_title(" ".join(units[k]["text"] for k in parts + [parts[-1] + 1]))
+            if not target.startswith(trial):
+                break
+            acc = trial
+            parts.append(parts[-1] + 1)
+        if acc == target:
+            return parts
+    return None
+
+
+def document_status(doc, flags, pages=3):
+    """What kind of copy this is: openly licensed, a pre-proof, or unknown.
+
+    A journal pre-proof or accepted manuscript is the author's copy of an article that
+    is otherwise behind a paywall, and converting one in full reproduces the whole work.
+    The caller asks the user before doing that. Only the PDF's metadata and its first
+    pages are read, so the check is cheap and nothing is written.
+    """
+    meta = doc.metadata or {}
+    head = ""
+    for i in range(min(pages, doc.page_count)):
+        try:
+            head += doc[i].get_text("text", flags=flags)[:4000] + "\n"
+        except Exception:
+            pass
+    blob = " ".join(str(meta.get(k) or "") for k in ("title", "subject", "keywords", "creator"))
+    blob += "\n" + head
+
+    licence = None
+    if OPEN_LICENCE_RE.search(blob):
+        line = next((x for x in blob.splitlines() if OPEN_LICENCE_RE.search(x)), "")
+        licence = re.sub(r"\s+", " ", line).strip()[:200] or "open licence stated"
+    preproof = bool(PREPROOF_RE.search(blob))
+    first = doc[0].get_text("text", flags=flags) if doc.page_count else ""
+    # a cover sheet is the publisher's front page: the pre-proof banner plus the
+    # PII / "To appear in" / "Please cite this article as" block, and little else
+    cover = bool(PREPROOF_RE.search(first) and COVER_RE.search(first) and len(first) < 6000)
+
+    if preproof:
+        status = "pre-proof"
+    elif licence:
+        status = "open-licence"
+    elif ARR_RE.search(blob):
+        status = "all-rights-reserved"
+    else:
+        status = "unknown"
+    doi = DOI_RE.search(blob)
+    return {"status": status,
+            "restricted": status in ("pre-proof", "all-rights-reserved"),
+            "cover_sheet": cover,
+            "metadata_title": (meta.get("title") or "").strip()[:300] or None,
+            "source": re.sub(r"\s+", " ", str(meta.get("subject") or "")).strip()[:200] or None,
+            "doi": doi.group(0).rstrip(".,;)") if doi else None,
+            "licence": licence}
+
+
+def extract(pdf_path, outdir, dpi=220, password=None, confirm_restricted=False):
     global _VOCAB
     _VOCAB = Counter()
 
@@ -765,10 +894,24 @@ def extract(pdf_path, outdir, dpi=220, password=None):
             return 4
 
     n = doc.page_count
-    os.makedirs(outdir, exist_ok=True)
     img_dir, eq_dir = os.path.join(outdir, "images"), os.path.join(outdir, "equations")
     flags = pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_LIGATURES & ~pymupdf.TEXT_PRESERVE_IMAGES
     warnings = []
+
+    # ---- publication status. Nothing is written until a restricted copy is confirmed.
+    try:
+        docinfo = document_status(doc, flags)
+    except Exception as e:
+        docinfo = {"status": "unknown", "restricted": False, "cover_sheet": False,
+                   "metadata_title": None, "source": None, "doi": None, "licence": None}
+        warnings.append(f"publication status not read ({e})")
+    if docinfo["restricted"] and not confirm_restricted:
+        print(json.dumps({"restricted": True, "document": docinfo,
+                          "detail": "converting this copy in full reproduces the whole work; "
+                                    "ask the user, then rerun with --confirm-restricted"},
+                         indent=1, ensure_ascii=False))
+        return 6
+    os.makedirs(outdir, exist_ok=True)
 
     # ---- declared watermarks: layers and /Artifact /Watermark sections
     try:
@@ -967,12 +1110,18 @@ def extract(pdf_path, outdir, dpi=220, password=None):
     chrome = {k for k, v in band_counter.items() if v >= max(2, int(0.35 * n)) and len(k) < 200}
 
     units = []
-    figures, equations, front_removed, stub_pages = [], [], [], []
+    figures, equations, front_removed, stub_pages, cover_removed = [], [], [], [], []
     fig_seq = eq_seq = axis_recovered = 0
+    pending_caption = False
     size_hist2 = Counter()
 
     # ---- pass 2: per-page layout
     for pno in range(n):
+        # the publisher's cover sheet is furniture: its banner would otherwise win the
+        # title, and its PII block would be emitted as body text
+        if pno == 0 and docinfo.get("cover_sheet"):
+            cover_removed = [re.sub(r"\s+", " ", b["text"])[:100] for b in blocks[pno][:8]]
+            continue
         page = doc[pno]
         pr, pw, ph = page.rect, page.rect.width, page.rect.height
         page_units = []
@@ -1003,6 +1152,10 @@ def extract(pdf_path, outdir, dpi=220, password=None):
                     elif it[0] == "l" and abs(it[1].x - it[2].x) > 0.3 and abs(it[1].y - it[2].y) > 0.3:
                         k += 1
             return k
+
+        rec_boxes = [c for c in clusters[pno]
+                     if (round(c.x0 / 10), round(c.y0 / 10), round(c.x1 / 10),
+                         round(c.y1 / 10)) in recurring_clusters]
 
         table_rects, chart_rects = [], []
         try:
@@ -1151,10 +1304,40 @@ def extract(pdf_path, outdir, dpi=220, password=None):
                     continue
                 if any(overlap_frac(band, tr) > 0.4 for tr in table_rects):
                     continue
-                if page.get_pixmap(clip=band & pr, dpi=72, annots=False).is_unicolor:
+                # a figure is drawings or an image. A band holding neither, or holding only
+                # a recurring stamp, is empty page, however the caption sits next to it.
+                art = [pth for pth in paths if area(pymupdf.Rect(pth["rect"]) & band) > 0
+                       and not any(c.contains(pymupdf.Rect(pth["rect"])) for c in rec_boxes)]
+                art += [i for i in img_infos[pno] if i.get("xref") not in wm_images
+                        and area(pymupdf.Rect(i["bbox"]) & band) > 0]
+                if not art:
                     continue
+                if blank_band(page, band & pr, wm_rects[pno]):
+                    continue                                   # empty, or only watermark ink
                 figs.append(band)
                 break
+
+        # a figure printed on its own page, after its caption on the page before. Common in
+        # accepted manuscripts, where figures are appended one per page.
+        if not figs and pending_caption and pno > 0 and not table_rects:
+            marks = [c for c in clusters[pno]
+                     if (round(c.x0 / 10), round(c.y0 / 10), round(c.x1 / 10),
+                         round(c.y1 / 10)) not in recurring_clusters]
+            big = [c for c in marks if area(c & pr) > 0.25 * area(pr)]
+            big += [pymupdf.Rect(i["bbox"]) for i in img_infos[pno]
+                    if i.get("xref") not in wm_images
+                    and area(pymupdf.Rect(i["bbox"]) & pr) > 0.25 * area(pr)]
+            # a figure page carries labels, not paragraphs
+            text_total = sum(tb["nchar"] for tb in tblocks)
+            if big and text_total < 2000 and not any(tb["nchar"] > 900 for tb in tblocks):
+                box = pymupdf.Rect()
+                for tb in tblocks:
+                    box |= tb["rect"]
+                for c in big + marks:
+                    box |= c
+                box &= pr
+                if box.width > 80 and box.height > 80 and not blank_band(page, box, wm_rects[pno]):
+                    figs = [box]
 
         # one caption = one figure: union the panels that share a caption
         fcaps = [tb["rect"] for tb in fcap_blocks]
@@ -1211,6 +1394,7 @@ def extract(pdf_path, outdir, dpi=220, password=None):
             tb["kind"] = "text"
             page_units.append(tb)
 
+        pending_caption = len(fcap_blocks) > sum(1 for u in page_units if u["kind"] == "figure")
         units.extend(xy_cut(page_units, pw))
 
     # ---- attach nearest caption text to each figure (helps the vision pass)
@@ -1294,11 +1478,24 @@ def extract(pdf_path, outdir, dpi=220, password=None):
                               "raw_text": u["text"]})
 
     # ---------------------------------------------------------------- title and front matter
-    p1 = [u for u in units if u.get("kind") == "text" and u["page"] == 1 and not u.get("caption")
+    title_page = 2 if docinfo.get("cover_sheet") else 1   # the manuscript's own first page
+    title_idx = None
+    # the metadata title is exact, and it also repairs a title set over two lines
+    parts = title_units(units, docinfo.get("metadata_title"))
+    if parts:
+        head = units[parts[0]]
+        head["text"] = join_lines([units[k]["text"] for k in parts])
+        head["nchar"] = sum(units[k]["nchar"] for k in parts)
+        head["kind"], head["level"] = "heading", 1
+        for k in reversed(parts[1:]):
+            units.pop(k)
+        title_idx = parts[0]
+        title_page = head["page"]
+    p1 = [u for u in units if u.get("kind") == "text" and u["page"] == title_page
+          and not u.get("caption")
           and (u["nchar"] > 15 or (u["nchar"] >= 4 and cjk_ratio(u["text"]) > 0.3))
           and "@" not in u["text"]]
-    title_idx = None
-    if p1:
+    if p1 and title_idx is None:
         cand = max(p1, key=lambda u: (round(u["size"], 1), u["nchar"]))
         if cand["size"] >= body_size + 0.8 and len(cand["text"]) < 400:
             cand["text"] = JOURNAL_LABEL_RE.sub("", cand["text"]).strip()
@@ -1307,7 +1504,7 @@ def extract(pdf_path, outdir, dpi=220, password=None):
     # between the title and the first section heading: authors, affiliations, notes
     if title_idx is not None:
         for u in units[title_idx + 1:]:
-            if u["page"] != 1:
+            if u["page"] != title_page:
                 break
             if u.get("kind") != "text" or u.get("caption"):
                 continue
@@ -1346,6 +1543,13 @@ def extract(pdf_path, outdir, dpi=220, password=None):
             if SECTION_WORDS.match(u["text"]) or has_title:
                 lvl = max(lvl, 2)
             u["level"] = max(1, min(lvl, 4))
+    # A manuscript whose headings are all one size (bold, never larger) carries no level
+    # evidence. The standard sections then sit at level 2 and the rest one level below.
+    if len({round(s, 1) for s in head_sizes}) <= 1:
+        heads = [u for u in units if u.get("kind") == "heading" and u.get("level") != 1]
+        if sum(1 for u in heads if SECTION_WORDS.match(u["text"])) >= 2:
+            for u in heads:
+                u["level"] = 2 if SECTION_WORDS.match(u["text"]) else 3
 
     # ---------------------------------------------------------------- rejoin split paragraphs
     def open_ended(t):
@@ -1490,6 +1694,7 @@ def extract(pdf_path, outdir, dpi=220, password=None):
         samples.extend(wm_samples.get(reason, []))
     worklist = {
         "version": __version__, "scanned": False, "pdf": os.path.basename(pdf_path), "pages": n,
+        "document": docinfo,
         "markdown": os.path.basename(md_path), "body_font_size": body_size,
         "figures": figures, "equations": equations,
         "tables": n_tab, "figure_captions": cap_fig, "table_captions": cap_tab,
@@ -1498,6 +1703,7 @@ def extract(pdf_path, outdir, dpi=220, password=None):
         "reference_range": ([ref_entries[0][0], ref_entries[-1][0]] if ref_entries else None),
         "chrome_removed": sorted(chrome)[:20],
         "front_matter_removed": front_removed[:12],
+        "cover_sheet_removed": cover_removed,
         "watermarks": {
             "declared_sections_removed": declared,
             "hidden_layers": sorted(ocgs[x].get("name") for x in wm_ocgs),
@@ -1524,6 +1730,8 @@ if __name__ == "__main__":
     ap.add_argument("outdir")
     ap.add_argument("--dpi", type=int, default=220, help="resolution of figure crops (default 220)")
     ap.add_argument("--password", default=None, help="password for an encrypted PDF")
+    ap.add_argument("--confirm-restricted", action="store_true",
+                    help="the user has agreed to convert this pre-proof or all-rights-reserved copy")
     ap.add_argument("--version", action="version", version=f"mdconvert {__version__}")
     a = ap.parse_args()
-    sys.exit(extract(a.pdf, a.outdir, a.dpi, a.password))
+    sys.exit(extract(a.pdf, a.outdir, a.dpi, a.password, a.confirm_restricted))

@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.4.0] - 2026-09-27
+
+### Added
+
+- **Permission gate for restricted copies.** A journal pre-proof, an accepted manuscript or
+  an article carrying an all-rights-reserved notice with no open licence now exits with code
+  6 before anything is written, printing a `document` block with the status, title, journal,
+  DOI and licence. `SKILL.md` step 3 tells the user what the file is and asks; on a yes the
+  same command is rerun with `--confirm-restricted`. An openly licensed article (CC-BY and
+  similar) is detected as such and converts without asking.
+- Publisher cover sheets (the Elsevier pre-proof front page: banner, PII, DOI, citation
+  notice, disclaimer) are dropped whole and listed under `cover_sheet_removed`.
+- The title is taken from the PDF metadata when that title appears in the text, merging the
+  blocks it is set over, which repairs a title split across two lines. The font-size rule
+  remains the fallback.
+- A figure printed on its own page, after its caption on the page before, is matched to that
+  page. This is how accepted manuscripts append their figures.
+- Pre-proof fixture and eight tests covering the gate, the cover sheet, the title, heading
+  levels and the figure page: 53 tests in total.
+
+### Fixed
+
+- A caption with no graphic beside it no longer crops an empty band as a figure. The band
+  must contain a drawing or an image that is not part of a recurring stamp, and its ink is
+  measured with the watermark painted out.
+- When every heading in a document is set in one size, as in an accepted manuscript, the
+  standard sections are now level 2 and the rest level 3 instead of all becoming level 1.
+
 ## [0.3.0] - 2026-09-26
 
 ### Added

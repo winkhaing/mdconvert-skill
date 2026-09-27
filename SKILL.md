@@ -17,10 +17,10 @@ Scanned PDFs are refused, not OCR-guessed. English and Chinese (Traditional and 
 
 ## Output contract
 
-These rules are not negotiable. Check every one of them in step 7.
+These rules are not negotiable. Check every one of them in step 8.
 
 - One `#` title. Section headings use `##`, subsections `###`. Heading level comes from document-wide font evidence, applied consistently. Author names and affiliations under the title are plain text, never headings.
-- Running heads, journal name, volume/issue lines, per-page DOI strips, copyright footers, page numbers, licence and permission notices, and journal metadata blocks (Citation, Editor, Received/Accepted, Copyright) are removed.
+- Running heads, journal name, volume/issue lines, per-page DOI strips, copyright footers, page numbers, licence and permission notices, and journal metadata blocks (Citation, Editor, Received/Accepted, Copyright) are removed. So is a publisher's cover sheet, such as the Elsevier pre-proof front page carrying the banner, the PII and the citation notice.
 - **Watermarks never reach the Markdown**: diagonal or rotated stamps, transparent text, text on a watermark layer, watermarks the PDF declares as such, large light-grey stamps such as DRAFT, text repeated at the same spot on every page, and recurring logo or stamp images.
 - Reading order follows the columns, not the raster lines. Nothing from column 2 interleaves into column 1.
 - A paragraph split by a figure, a table, a footnote, a column break or a page break is rejoined into one paragraph; the interrupting block is then placed after that paragraph, never inside it.
@@ -30,7 +30,7 @@ These rules are not negotiable. Check every one of them in step 7.
 - Figures, infographics and graphical abstracts are saved as PNG in `images/` and linked relatively. A short description sits directly under each one, with every label, unit and printed statistic taken from the PDF's own text rather than read off the picture.
 - Display formulas become `$$ ... $$` LaTeX.
 - References are one numbered entry per line, carrying the PDF's own numbering, in the position where the reference section stands. Never invent a number that is not in the source.
-- The Markdown body carries no editorial notes, no provenance text, no conversion commentary. All of that belongs in the separate log file written in step 8.
+- The Markdown body carries no editorial notes, no provenance text, no conversion commentary. All of that belongs in the separate log file written in step 9.
 - Write plain prose in the descriptions. No em-dashes.
 
 ## Workflow
@@ -55,18 +55,30 @@ Add `--password "<pw>"` only when the user has given one. The extractor writes `
 
 | Exit | Meaning | What to do |
 | --- | --- | --- |
-| 0 | Converted | Continue with step 4 |
-| 3 | Scanned or image-only PDF | Step 3 |
+| 0 | Converted | Continue with step 5 |
+| 3 | Scanned or image-only PDF | Step 4 |
 | 4 | Encrypted, password needed or wrong | Ask for the password, then rerun with `--password` |
 | 5 | Not a PDF, or damaged | Tell the user the file cannot be opened and ask for another copy |
+| 6 | Pre-proof or all-rights-reserved copy | Step 3: ask the user, then rerun with `--confirm-restricted` |
 
-### 3. Scanned PDF: stop
+### 3. Restricted copy: ask before converting
+
+Exit code 6 means the PDF is a journal pre-proof, an accepted manuscript, or carries an all-rights-reserved notice with no open licence. A full conversion reproduces the whole of a copyrighted article, so that is the user's call, not yours. Nothing has been written at this point.
+
+Tell them what the file is, in one short message, using the `document` block the extractor printed: title, journal, DOI and status. Then ask whether to convert their copy for their own use.
+
+- **Yes**: rerun the same command with `--confirm-restricted` and carry on from step 4.
+- **No, or no answer**: do not convert. Offer what does not reproduce the work, such as a summary, the figure and table inventory, the reference list, or the specific numbers they need.
+
+Do not question their access to the file and do not ask them to prove it. Say once, without lecturing, that the converted file is for their own use rather than for redistribution. An openly licensed article (`status: open-licence`, for example CC-BY) never reaches this step and converts straight through.
+
+### 4. Scanned PDF: stop
 
 On exit 3, do not OCR, do not deliver a partial file. Reply with one line:
 
 > This is a scanned PDF with no text layer. Please provide the original (born-digital) PDF and I will convert it.
 
-### 4. Figure pass
+### 5. Figure pass
 
 Read `_worklist.json`. Each entry in `figures` carries the crop plus the figure's own text, read out of the PDF rather than off the image:
 
@@ -98,13 +110,13 @@ Rules for the description:
 - State the axis scale when `ticks` gives it, and say `log` when it is log. Reading a log axis as linear is the error that moves a value by an order of magnitude.
 - Report only values that are printed. A bar height read off the picture is not a value, so describe the pattern ("about a third higher") rather than inventing a number.
 - Check the description against `caption` and `cited_by` before you write it. If the picture seems to contradict what the authors say about it, keep the description factual and add the disagreement to the repair list, never to the Markdown.
-- Keep a list of what you could not read (an illegible tick row, a legend hidden behind ink, an unresolvable panel). It goes in the log in step 8 as `unreadable`. Saying nothing is worse than saying a label could not be read.
+- Keep a list of what you could not read (an illegible tick row, a legend hidden behind ink, an unresolvable panel). It goes in the log in step 9 as `unreadable`. Saying nothing is worse than saying a label could not be read.
 - For a graphical abstract or infographic, transcribe its labels in reading order, from `text` where possible.
 - If a faint watermark still shows across a crop, ignore it: describe the figure only, and never mention the watermark.
 
-If a crop is blank, or is clearly a fragment of a figure, or duplicates another, delete the PNG, remove its link and placeholder, and add it to the repair list for step 6.
+If a crop is blank, or is clearly a fragment of a figure, or duplicates another, delete the PNG, remove its link and placeholder, and add it to the repair list for step 7.
 
-### 5. Formula pass
+### 6. Formula pass
 
 For each entry in `equations`, read `equations/<id>.png` and replace `<!-- MDC:EQ:<id> -->` with display LaTeX:
 
@@ -116,9 +128,9 @@ $$
 
 Keep the printed equation number with `\tag{n}`. Leave inline math inside sentences as it is unless it is garbled. Delete the `equations/` folder afterwards; keep only a PNG for a formula you could not read, and link it in place.
 
-### 6. Repair pass
+### 7. Repair pass
 
-Work through `warnings` in `_worklist.json`, plus anything you flagged in step 4.
+Work through `warnings` in `_worklist.json`, plus anything you flagged in step 5.
 
 Render the pages involved and look at them:
 
@@ -132,7 +144,7 @@ python3 -c "import pymupdf,sys; d=pymupdf.open(sys.argv[1]); [d[i-1].get_pixmap(
 
 Never invent content. If the PDF does not show it, leave it out and record it in the log.
 
-### 7. Verify before delivering
+### 8. Verify before delivering
 
 ```bash
 grep -c "MDC:" "<slug>.md"                      # must be 0
@@ -144,7 +156,7 @@ python3 -c "import json,sys; w=json.load(open('_worklist.json'))['watermarks']['
 
 Then confirm by eye: page 1 and the most figure-heavy page rendered as images, read side by side with the Markdown. Check reading order, paragraph integrity, caption formatting, table column counts, reference sequence, and that no running head, page number or watermark survived.
 
-### 8. Package and deliver
+### 9. Package and deliver
 
 - Final folder `<slug>/` holds `<slug>.md` and `images/`.
 - Write `<slug>_conversion_log.md` beside the folder: source filename, page count, counts of figures, tables, equations and references, what was stripped as page chrome and front matter, the watermarks removed (from `watermarks` in the worklist), row-label columns recovered, an `unreadable` section listing everything in a figure or formula you could not read, and every unresolved warning. Nothing of this goes inside the Markdown.
@@ -171,5 +183,9 @@ It downloads about 1 to 2 GB of models and takes several minutes on CPU. Reforma
 - A `find_tables` candidate that contains curves or diagonal strokes, or that is mostly empty and mostly graphics, is treated as a chart and cropped as a figure. This is what stops plots from being flattened into fake pipe tables.
 - Figure panels that share one caption are unioned into a single image, so a multi-panel figure stays one file.
 - The text printed inside a figure is collected from the PDF, not from the crop: tick labels, axis titles, legend entries, panel letters and plot annotations, with their boxes. The collection box is padded, because tick labels usually sit just outside the drawing, and a rotated string inside a figure is read as an axis title rather than treated as a watermark. Those label blocks are then kept out of the prose flow, so stray axis numbers no longer appear as one-line paragraphs.
+- A pre-proof cover sheet is detected from the banner plus the PII or citation block and dropped whole, so its banner cannot win the title and its PII block cannot be emitted as body text.
+- The title comes from the PDF's own metadata when that title appears in the text: the matching blocks are merged, which also repairs a title set over two lines. The size rule is the fallback.
+- When every heading in a document is set in one size, as in an accepted manuscript, the standard sections sit at level 2 and the rest at level 3, since size gives no evidence.
+- A caption whose figure sits alone on the next page, as in a manuscript with the figures appended, is matched to that page. A candidate band carrying almost no ink is discarded, so a faint watermark is not cropped as a figure.
 - A tick row is accepted only when at least three numeric labels run one way across the axis, and the scale is decided by measuring which of linear or log fits the tick positions. Numbers inside a diagram, such as layer widths, produce no axis.
 - The `warnings` list is the repair worklist. Caption counts are compared against extracted assets, and the reference sequence is checked for gaps, so systematic misses surface instead of passing silently.

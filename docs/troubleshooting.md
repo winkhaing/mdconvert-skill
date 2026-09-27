@@ -13,6 +13,12 @@ An upstream notice, not an error. The summary JSON is on stdout, so parse stdout
 **Exit code 3 on a PDF that clearly has text**
 The text layer is behind an image overlay, or the pages are images with a thin OCR layer. Check with `python3 -c "import pymupdf; print(len(pymupdf.open('in.pdf')[0].get_text()))"`. If the count is genuinely low but the document is usable, lower the 120 characters per page gate in the scanned check.
 
+**Exit code 6**
+The PDF says it is a journal pre-proof, an accepted manuscript, or carries an all-rights-reserved notice with no open licence. Nothing was written. Show the user the `document` block, ask, and rerun with `--confirm-restricted` if they agree.
+
+**Exit code 6 on an open-access paper**
+The text contains a phrase the check treats as a marker, such as "accepted manuscript", while the licence statement is on a page it did not read (it reads the metadata and the first three pages). Rerun with `--confirm-restricted`.
+
 **Exit code 4**
 The PDF has a user password. Rerun with `--password "..."`. A PDF that only restricts printing or copying (an owner password) opens without one and does not trigger this.
 
@@ -35,6 +41,17 @@ Look under `watermarks` in `_worklist.json`: `text_removed` counts every span re
 
 **A logo or stamp appears as a figure**
 It recurred on fewer than 60 percent of pages, or at slightly different positions. Delete the crop and its link in the repair pass.
+
+## Cover sheets and titles
+
+**The title is "Journal Pre-proof" or another banner**
+The cover sheet was not detected, which needs the banner plus a PII, "to appear in" or citation-notice block on the same page. Set the `#` heading by hand, and open an issue with the publisher's name.
+
+**The whole first page is missing**
+The opposite case: a real first page was taken for a cover sheet. It is listed under `cover_sheet_removed` in the worklist, so nothing is lost silently.
+
+**The title is split across two headings**
+The PDF metadata carries no title, so the merge had nothing to match against. Join the two headings in the repair pass.
 
 ## Reading order and text
 

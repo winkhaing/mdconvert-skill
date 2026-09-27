@@ -38,11 +38,15 @@ mdconvert does the layout work explicitly, then uses Claude's vision to do the p
 | --- | --- |
 | Multi-column reading order | Recursive XY-cut. A vertical cut is only taken where no text block crosses the gutter, so a full-width title or banner is emitted before the columns beneath it |
 | Watermarks removed | Watermarks the PDF declares (`/Artifact /Watermark` content, watermark layers) are cut out of the page content in memory, so they disappear from the text and from figure crops. Undeclared ones are removed span by span: rotated or diagonal text, transparent text, large light-grey stamps such as DRAFT, and text repeated at the same spot on most pages. Recurring logo and stamp images are hidden and never extracted as figures |
+| Restricted copies handled with permission | A journal pre-proof, an accepted manuscript or an all-rights-reserved article stops with exit code 6 before anything is written, reporting the title, journal, DOI and status so the user can decide. Converting resumes with `--confirm-restricted`. An openly licensed article (CC-BY and similar) runs straight through |
+| Publisher cover sheets removed | An Elsevier-style pre-proof front page (banner, PII, DOI, citation notice, disclaimer) is dropped whole, so its banner cannot become the title and its PII block cannot appear as body text |
 | Page furniture removed | Running heads, journal and volume lines, per-page DOI strips and copyright footers are detected by recurrence across pages; bare page numbers are dropped |
 | Front matter cleaned | Licence and permission notices, "Downloaded from" lines and journal metadata blocks (Citation, Editor, Received and Accepted dates, Copyright) are removed and listed in the conversion log. Author names and affiliations stay as plain text, never as headings |
 | Paragraph reconstruction | Lines are joined with hyphenation repair; a paragraph interrupted by a figure, a table, a footnote, a column break or a page break is rejoined, and the interrupting block is re-anchored after it |
 | Correct hyphenation | A line-end hyphen is decided against the document's own vocabulary, then simple rules: "classi-" + "fication" joins, "high-level", "2-year", "IgG-positive" and "SARS-CoV-2" keep their hyphen |
 | Clean characters | Ligature glyphs are expanded ("ﬁ" to "fi") and TeX-style spacing accents are recombined ("M¨uller" to "Müller"), so the text is searchable |
+| Titles taken from metadata | The PDF's own metadata title is matched against the text and the matching blocks are merged, which repairs a title set over two lines. The font-size rule is the fallback |
+| Figures printed on their own page | A caption whose figure sits alone on the next page, as in an accepted manuscript with figures appended, is matched to that page. A band holding no drawing or image, or only a recurring stamp, is never cropped as a figure |
 | Consistent headings | One `#` title, `##` sections, `###` subsections, assigned from document-wide font size and weight evidence rather than per-page guesses. Run-together headings such as "Results Study 1" are split |
 | Figures and graphical abstracts | Raster placements, vector drawing clusters, small diagrams that sit next to a caption, and caption-anchored regions are cropped to PNG at 220 dpi, saved in `images/` and linked relatively. Panels that share one caption are merged into a single image |
 | Figure label text read from the PDF | Tick labels, axis titles, legend entries, panel letters and plot annotations are collected as vector text with their positions, so units, group names and printed p-values are exact rather than guessed from pixels. A rotated string inside a figure is read as an axis title instead of being treated as a watermark, and those label blocks no longer leak into the prose as stray one-line paragraphs |
@@ -73,6 +77,7 @@ Stated plainly, because knowing the limits is the difference between a useful to
 - **Semantics are not checked.** The tool preserves what the PDF says. It does not verify claims, resolve citations, or reconcile numbers in the text against numbers in the tables.
 - **Not a batch server.** It converts one document per run, interactively, with Claude in the loop for the vision and repair passes. There is no unattended queue mode.
 - **Figure descriptions are descriptions, not data.** Labels, units and printed statistics are exact, because they are read from the PDF's text. Values that exist only as geometry, such as a bar height or a point on a curve, are not extracted: the description says what the pattern is, not what the number is. Digitising those values is a separate job and is not in this version.
+- **It does not decide licensing for you.** The status check reports what the file says about itself and stops so a person can decide. It reads metadata and the first pages, so an unlabelled copy of a paywalled article reports `unknown` and converts without asking.
 - **Figure label text needs a text layer.** A figure embedded as a single raster image carries no label text, so it falls back to description from the crop alone. The worklist shows `text_items` of 0 for those.
 
 ## Requirements
@@ -208,9 +213,9 @@ The split matters: geometry decides *where things are*, and only the questions t
 
 ## Validation
 
-`tests/` builds two synthetic articles with known ground truth and asserts the output contract in 45 tests.
+`tests/` builds two synthetic articles with known ground truth and asserts the output contract in 53 tests.
 
-The English fixture is a three-page, two-column article carrying a running header and page numbers, a licence notice above the title, an author line, hand-set line-end hyphens of both kinds, a display equation, a figure, a table whose row labels sit outside the ruled grid, a chart with numeric tick rows on both axes, a rotated y-axis title, an x-axis title, a printed p-value and group size, a sentence in the body citing the figure, a TeX-style accent, content after the references, a paragraph that continues across a column break, and five watermarks: a transparent diagonal stamp across body text, a declared watermark, text on a watermark layer, a large light DRAFT across the table, and a recurring stamp image. The Chinese fixture covers joining, captions, sections and references. Further tests cover scanned, encrypted and damaged files, and the text helpers directly.
+The English fixture is a three-page, two-column article carrying a running header and page numbers, a licence notice above the title, an author line, hand-set line-end hyphens of both kinds, a display equation, a figure, a table whose row labels sit outside the ruled grid, a chart with numeric tick rows on both axes, a rotated y-axis title, an x-axis title, a printed p-value and group size, a sentence in the body citing the figure, a TeX-style accent, content after the references, a paragraph that continues across a column break, and five watermarks: a transparent diagonal stamp across body text, a declared watermark, text on a watermark layer, a large light DRAFT across the table, and a recurring stamp image. A third fixture is an Elsevier-style pre-proof: a publisher cover sheet, a title set over two lines, headings that are all one size, a diagonal pre-proof stamp, and a figure printed on its own page after its caption. The Chinese fixture covers joining, captions, sections and references. Further tests cover scanned, encrypted and damaged files, and the text helpers directly.
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -223,6 +228,7 @@ The pipeline was also checked against three structurally different real papers:
 | Deep residual learning (CVPR) | Two column | 12 | 7 of 7 | 2 | 13 of 14 | 1 to 50, complete | 4 of 4 plots, both axis titles each |
 | PLOS NTD research article | Single column | 14 | 3 of 3 | 0 | 3 of 3, 2 row-label columns recovered | 44 found, gap at 2 to 3 reported | 0, figures are raster images |
 | Attention is all you need | Mixed | 15 | 5 of 5 | 6 | 2 of 4, borderless | 1 to 40, complete | 0, diagrams with no numeric axis |
+| AJKD accepted manuscript (pre-proof) | Single column | 26 | 1 of 1, on its own page | 0 | 3 of 3 after joining two page breaks | none in the file | 0, a flow diagram |
 
 The counts are reported against the captions printed in each paper, and every shortfall appeared as a warning in the worklist rather than as a silent loss. The PLOS row is the point: two reference numbers were not recoverable from the text layer, and the tool reported the gap instead of renumbering the list to look complete.
 
@@ -242,6 +248,8 @@ Thresholds live in `scripts/mdconvert_extract.py`. The ones worth touching:
 | chart test | 3 curves or diagonals, or text coverage under 0.40 with cells mostly empty | Table versus chart boundary |
 | `gutter_min` | `max(11, 0.022 * page width)` | Column gutter width. Raise it for wide-tracked single-column layouts that split wrongly |
 | vector cluster minimum | 1.2 percent of page area, 0.3 percent next to a caption | Lower it to catch small line diagrams, at the cost of picking up rules and decorations |
+| `PREPROOF_RE`, `COVER_RE` | pre-proof, accepted manuscript, PII, "to appear in" | What marks a restricted copy and a publisher cover sheet |
+| `OPEN_LICENCE_RE` | Creative Commons, CC-BY, open access | What counts as an open licence, which skips the permission gate |
 | `COMPOUND_FIRST` | high, low, well, non, ... | Words that keep a line-end hyphen when the document itself gives no evidence |
 | figure label pad | 10 to 26 points, 10 percent of the figure | How far outside a figure a tick label or axis title is still collected |
 | tick row minimum | 3 numeric labels running one way, spanning 25 percent of the axis | Raise it to be stricter about what counts as an axis |
@@ -293,4 +301,4 @@ The extractor depends on PyMuPDF, which is distributed under AGPL-3.0 or a comme
 
 If this tool contributes to published work, cite it through [CITATION.cff](CITATION.cff), or:
 
-> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.3.0. 2026. https://github.com/winkhaing/mdconvert-skill
+> Khaing W. mdconvert: layout aware conversion of scientific PDFs to Markdown. Version 0.4.0. 2026. https://github.com/winkhaing/mdconvert-skill

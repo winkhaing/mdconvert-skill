@@ -10,6 +10,15 @@ The short list is in the README. This is the long form, with the reason and the 
 
 *Workaround:* OCR the document yourself (`ocrmypdf --force-ocr in.pdf out.pdf`) and convert the result. Accuracy then depends on the OCR, and the reference and formula passes in particular will need heavier repair.
 
+## Restricted copies
+
+**The tool stops and asks; it does not judge.** A pre-proof, an accepted manuscript or an all-rights-reserved notice is detected from the PDF's metadata and its first pages, and the run stops before writing anything so that a person decides. Two consequences:
+
+- An unlabelled copy of a paywalled article carries no marker, so it reports `unknown` and converts without asking. The check describes what the file says about itself, nothing more.
+- A document that merely discusses pre-proofs, or an open-access article that reprints the phrase, can be flagged. Confirming takes one flag.
+
+Converting a copy you hold, for your own reading, is format shifting. Redistributing the output, or running a pipeline over a body of subscription articles, is a different matter and belongs under a text and data mining licence.
+
 ## Layouts outside the target range
 
 Tuned for one and two-column scientific articles on A4 or US Letter, in Latin script or horizontal Chinese.
